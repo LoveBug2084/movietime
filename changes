@@ -16,3 +16,8 @@ fixed - pagination now uses in-memory data:
 - Page count is calculated from array length, no longer fluctuates
 - Search results also stored in-memory for pagination
 - Initial search still shows live progress, but navigation after is instant
+
+- reorganized cache storage:
+  - Created database/ directory for movie cache
+  - Renamed movies_cache.json to database/active.json
+  - Updated CACHE_FILE path in movietime

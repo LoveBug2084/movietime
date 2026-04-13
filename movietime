@@ -56,7 +56,8 @@ TMDB_API_KEY = "6ee1592d2aa6879294c1a8bf597095d1"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
 
 # Cache file for popular movies
-CACHE_FILE = "movies_cache.json"
+CACHE_FILE = "database/active.json"
+os.makedirs("database", exist_ok=True)
 CACHE_MAX_AGE = 24 * 3600  # 24 hours in seconds
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
