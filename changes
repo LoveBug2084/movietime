@@ -1,3 +1,9 @@
 initial commit:
+
 This version upon start checks if there is a movie cache and if not it pulls all 500 pages * 20 movies of the most popular from tmdb to build a database of 10000 movies
 clicking on the moviecard or a torrent ijn the list starts a download, movie automatically plays when there is data buffered
+
+bugs:
+
+the when clicking on the next/prev page buttons the total pages count changes and its slow
+I think the search is being run every time
