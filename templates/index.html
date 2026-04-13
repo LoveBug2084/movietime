@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MovieTime</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #111;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            padding: 20px;
+            background: linear-gradient(180deg, #000 0%, transparent 100%);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .search-box {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: nowrap;
+        }
+        .search-box input {
+            min-width: 200px;
+        }
+        .search-box input {
+            min-width: 200px;
+        }
+        .search-box input {
+            flex: 1;
+            padding: 15px 20px;
+            font-size: 18px;
+            border: none;
+            border-radius: 30px;
+            background: #222;
+            color: #fff;
+            outline: none;
+        }
+        .search-box input:focus {
+            background: #333;
+            box-shadow: 0 0 0 2px #e50914;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+        .pagination button {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .pagination button:hover {
+            background: #f40612;
+        }
+        .pagination button:disabled {
+            background: #333;
+            cursor: not-allowed;
+        }
+        .pagination #page-info {
+            font-size: 14px;
+            color: #fff;
+            white-space: nowrap;
+        }
+        .folder-btn {
+            display: none;
+            background: #333;
+            border: none;
+            color: #fff;
+            width: 36px;
+            height: 36px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            align-items: center;
+            justify-content: center;
+            margin-left: 10px;
+            transition: background 0.15s;
+        }
+        .folder-btn:hover {
+            background: #555;
+        }
+        .sort-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 20px;
+        }
+        .sort-bar label {
+            font-size: 14px;
+            color: #fff;
+            white-space: nowrap;
+        }
+        .sort-bar select {
+            background: #222;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .sort-bar select:hover {
+            background: #333;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+        }
+        .movie-card {
+            cursor: pointer;
+            transition: transform 0.2s;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #1a1a1a;
+            position: relative;
+        }
+        .movie-card:hover {
+            transform: scale(1.05);
+        }
+        .movie-card img {
+            width: 100%;
+            aspect-ratio: 2/3;
+            object-fit: cover;
+            background: #333;
+        }
+        .movie-card .info {
+            padding: 10px;
+        }
+        .movie-card .title {
+            font-size: 14px;
+            font-weight: bold;
+            white-space: normal;
+            word-wrap: break-word;
+            overflow: visible;
+        }
+        .movie-card .year-rating {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 3px;
+        }
+        .movie-card .year-rating .year-value {
+            color: #fff;
+            font-weight: bold;
+        }
+        .movie-card .year-rating .rating-value {
+            color: #f1c40f;
+            font-weight: bold;
+        }
+        .movie-card .stars {
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .movie-card .stars .star.filled {
+            color: #2ecc71;
+        }
+        .movie-card .stars .star {
+            color: #444;
+        }
+        .movie-card .seeders {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+        .movie-card .resolution {
+            font-size: 12px;
+            color: #2ecc71;
+            font-weight: bold;
+            margin-top: 3px;
+        }
+        .movie-card .resolution-list {
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 5px;
+            max-height: 110px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #444 transparent;
+            pointer-events: auto;
+            position: relative;
+            z-index: 30;
+        }
+        .movie-card .resolution-list::-webkit-scrollbar {
+            width: 4px;
+        }
+        .movie-card .resolution-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .movie-card .resolution-list::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 2px;
+        }
+        .movie-card .resolution-list.visible {
+            display: flex;
+        }
+        .movie-card .resolution-item {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            grid-template-rows: auto auto;
+            gap: 2px 8px;
+            padding: 3px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.15s;
+            font-size: 12px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .movie-card .resolution-item:hover {
+            background: #006699;
+        }
+        .movie-card .resolution-item:active {
+            background: #004d73;
+        }
+        .movie-card .resolution-item .res-label {
+            grid-column: 1;
+            grid-row: 1;
+        }
+        .movie-card .resolution-item .res-seeders {
+            grid-column: 2;
+            grid-row: 1;
+            text-align: right;
+        }
+        .movie-card .resolution-item .res-size {
+            grid-column: 1;
+            grid-row: 2;
+        }
+        .movie-card .resolution-item:hover {
+            background: #006699;
+        }
+        .movie-card .resolution-item .res-label {
+            color: #2ecc71;
+            font-weight: bold;
+        }
+        .movie-card .resolution-item .res-seeders {
+            color: #888;
+            font-size: 11px;
+        }
+        .movie-card .seeders-loading {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+        .movie-card .dl-progress-mini {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(0,0,0,0.7);
+            z-index: 5;
+        }
+        .movie-card .dl-progress-mini .dl-progress-mini-fill {
+            height: 100%;
+            background: #e50914;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .movie-card .dl-progress-mini .dl-progress-mini-text {
+            position: absolute;
+            right: 4px;
+            top: -18px;
+            font-size: 10px;
+            color: #e50914;
+            font-weight: bold;
+        }
+        .movie-card .poster-container {
+            position: relative;
+        }
+        .movie-card .description {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.95);
+            padding: 10px;
+            font-size: 12px;
+            color: #ccc;
+            opacity: 0;
+            transition: opacity 0.2s;
+            overflow-y: auto;
+            border-radius: 8px 8px 0 0;
+            z-index: 10;
+            display: flex;
+            align-items: flex-start;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        .movie-card .description::-webkit-scrollbar {
+            display: none;
+        }
+        .movie-card:hover .description {
+            opacity: 1;
+        }
+        .placeholder-thumb {
+            width: 100%;
+            padding-top: 150%;
+            background: #333;
+            position: relative;
+        }
+        .placeholder-thumb::after {
+            content: '🎬';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 60px;
+        }
+        .movie-card.downloading {
+            pointer-events: none;
+        }
+        .movie-card.downloading .download-overlay {
+            display: flex;
+        }
+        .movie-card.playable .play-btn {
+            display: flex;
+        }
+        .play-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            background: rgba(229, 9, 20, 0.9);
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 25;
+            transition: transform 0.2s, background 0.2s;
+            pointer-events: auto;
+        }
+        .play-btn::after {
+            content: '';
+            display: block;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 10px 0 10px 18px;
+            border-color: transparent transparent transparent #fff;
+            margin-left: 4px;
+        }
+        .movie-card:hover .play-btn {
+            transform: translate(-50%, -50%) scale(1.15);
+            background: rgba(229, 9, 20, 1);
+        }
+        .download-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.92);
+            z-index: 20;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            gap: 8px;
+            pointer-events: auto;
+        }
+        .download-overlay .dl-title {
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            line-height: 1.3;
+            max-height: 30px;
+            overflow: hidden;
+        }
+        .download-overlay .dl-progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #333;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .download-overlay .dl-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e50914, #ff6b6b);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .download-overlay .dl-percent {
+            font-size: 13px;
+            font-weight: bold;
+            color: #e50914;
+        }
+        .download-overlay .dl-size {
+            font-size: 10px;
+            color: #888;
+        }
+        .download-overlay .dl-cancel {
+            background: #444;
+            border: none;
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            pointer-events: auto;
+        }
+        .download-overlay .dl-cancel:hover {
+            background: #e50914;
+        }
+        .status-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            padding: 20px 30px;
+            border-radius: 15px;
+            display: none;
+            z-index: 300;
+            min-width: 300px;
+            text-align: center;
+        }
+        .status-bar.active {
+            display: block;
+        }
+        .status-bar .status-text {
+            color: #fff;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .status-bar .progress-container {
+            background: #333;
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .status-bar .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #e50914, #ff6b6b);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .status-bar .progress-text {
+            color: #888;
+            font-size: 12px;
+        }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #333;
+            border-top: 3px solid #e50914;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="/qwebchannel.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div class="search-box">
+            <input type="text" id="search" placeholder="Search movies..." autocomplete="off">
+            <div class="sort-bar">
+                <button onclick="refreshCache()" style="background: #4CAF50; border: none; color: #fff; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 14px;">Update Movies</button>
+            </div>
+            <div class="sort-bar">
+                <label for="category-select">Type:</label>
+                <select id="category-select" onchange="handleCategoryChange()">
+                    <option value="all">ALL</option>
+                    <option value="movies">MOVIES</option>
+                    <option value="tv">TV SHOWS</option>
+                    <option value="music">MUSIC</option>
+                    <option value="adult">ADULT</option>
+                </select>
+            </div>
+            <div class="sort-bar">
+                <label for="sort-select">Sort:</label>
+                <select id="sort-select" onchange="handleSortChange()">
+                    <option value="all">ALL</option>
+                    <option value="title">TITLE</option>
+                    <option value="year">YEAR</option>
+                    <option value="description">DESC</option>
+                </select>
+            </div>
+            <div class="pagination" id="pagination">
+                <button id="prev-btn" onclick="changePage(-1)">◀</button>
+                <span id="page-info">Page 1</span>
+                <button id="next-btn" onclick="changePage(1)">▶</button>
+            </div>
+            <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="grid" id="grid"></div>
+    </div>
+    
+    <script>
+        let currentMovies = [];
+        let currentPage = 1;
+        let currentSource = 'popular';
+        let currentSort = 'all';
+        let currentSearchQuery = '';
+        let currentTotalPages = 1;
+        let currentSearchId = null;
+        let searchPollInterval = null;
+        let torrentCache = {};
+        let hoverTimeouts = {};
+        let pendingFetches = {};
+        let downloadPollInterval = null;
+        
+        const grid = document.getElementById('grid');
+        const searchInput = document.getElementById('search');
+        const statusBar = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+        const pageInfo = document.getElementById('page-info');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const sortSelect = document.getElementById('sort-select');
+        const categorySelect = document.getElementById('category-select');
+        let currentCategory = 'all';
+        let activeCard = null;
+        
+        // Set up QWebChannel to get pyqt object
+        if (typeof QWebChannel !== 'undefined') {
+            new QWebChannel(qt.webChannelTransport, function(channel) {
+                window.pyqt = channel.objects.pyqt;
+            });
+        }
+        
+        // Show folder button only in desktop wrapper (QtWebEngine has 'qt' object)
+        if (typeof qt !== 'undefined') {
+            const folderBtn = document.querySelector('.folder-btn');
+            if (folderBtn) folderBtn.style.display = 'flex';
+        }
+        
+        function handleCategoryChange() {
+            currentCategory = categorySelect.value;
+            const query = searchInput.value.trim();
+            
+            if (!query) {
+                // No query - show message for non-all categories, popular for 'all'
+                if (currentCategory === 'all') {
+                    loadPopular(1);
+                } else {
+                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">Type to search for ' + currentCategory + '</div>';
+                }
+                return;
+            }
+            
+            // Re-run search with new category
+            performSearch(query);
+        }
+        
+        function handleSortChange() {
+            currentSort = sortSelect.value;
+            const query = searchInput.value.trim();
+            
+            // Always apply sort - either with search or just re-sort current movies
+            if (query) {
+                performSearch(query);
+            } else if (currentMovies.length > 0) {
+                // Sort current movies without filtering
+                const sorted = sortAndFilterMovies(currentMovies, '');
+                renderMovies(sorted, currentSource);
+            }
+        }
+        
+        async function refreshCache() {
+            const btn = document.querySelector('button[onclick="refreshCache()"]');
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            
+            // Start the refresh
+            fetch('/api/cache/refresh', { method: 'POST' });
+            
+            // Poll for progress
+            const pollProgress = async () => {
+                try {
+                    const resp = await fetch('/api/cache/progress');
+                    const data = await resp.json();
+                    
+                    if (data.status === 'running') {
+                        btn.textContent = `Updating ${data.percent}%...`;
+                        setTimeout(pollProgress, 500);
+                    } else if (data.status === 'complete') {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                        // Reload popular
+                        loadPopular(1);
+                    } else {
+                        // Idle or other - still running in background, check again
+                        setTimeout(pollProgress, 500);
+                    }
+                } catch (e) {
+                    btn.textContent = 'Error';
+                    btn.disabled = false;
+                }
+            };
+            
+            // Start polling after a brief delay to let fetch start
+            setTimeout(pollProgress, 500);
+        }
+        
+        function sortAndFilterMovies(movies, query) {
+            let result = [...movies];
+            
+            // Filter based on query and sort mode
+            if (query) {
+                if (currentSort === 'year') {
+                    // Check if query is a 4-digit year
+                    if (/^\d{4}$/.test(query)) {
+                        result = result.filter(m => m.year === query);
+                    } else {
+                        // Fall back to title search
+                        result = result.filter(m => 
+                            (m.title || '').toLowerCase().includes(query.toLowerCase())
+                        );
+                    }
+                } else if (currentSort === 'description') {
+                    result = result.filter(m => 
+                        (m.overview || '').toLowerCase().includes(query.toLowerCase())
+                    );
+                } else {
+                    // ALL or TITLE - search titles
+                    result = result.filter(m => 
+                        (m.title || '').toLowerCase().includes(query.toLowerCase())
+                    );
+                }
+            }
+            
+            // Sort the results
+            if (currentSort === 'title') {
+                result.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+            } else if (currentSort === 'year') {
+                result.sort((a, b) => (b.year || '').localeCompare(a.year || ''));
+            } else if (currentSort === 'description') {
+                result.sort((a, b) => (a.overview || '').localeCompare(b.overview || ''));
+            }
+            // 'all' - no sorting
+            
+            return result;
+        }
+        
+        async function loadPopular(page = 1) {
+            cancelCurrentSearch();
+            currentSource = 'popular';
+            currentSearchQuery = '';
+            const resp = await fetch(`/api/popular?page=${page}`);
+            const data = await resp.json();
+            currentMovies = data.movies;
+            currentPage = data.page;
+            currentTotalPages = data.total_pages;
+            renderMovies(currentMovies, 'popular');
+            updatePagination(data.total_pages);
+        }
+        
+        function updatePagination(totalPages) {
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
+        }
+        
+        function changePage(delta) {
+            const newPage = currentPage + delta;
+            if (newPage < 1) return;
+            
+            if (currentSource === 'search' && currentSearchId) {
+                fetch(`/api/search/page?id=${currentSearchId}&page=${newPage}`)
+                    .then(resp => resp.json())
+                    .then(data => {
+                        if (data.error) {
+                            performSearch(currentSearchQuery, newPage);
+                            return;
+                        }
+                        currentPage = newPage;
+                        currentTotalPages = data.total_pages || 1;
+                        renderMovies(data.results || [], 'search');
+                        updatePagination(currentTotalPages);
+                    })
+                    .catch(() => {
+                        performSearch(currentSearchQuery, newPage);
+                    });
+            } else if (currentSource === 'search' && currentSearchQuery) {
+                performSearch(currentSearchQuery, newPage);
+            } else {
+                loadPopular(newPage);
+            }
+        }
+        
+        function renderMovies(movies, source) {
+            if (downloadPollInterval) {
+                clearInterval(downloadPollInterval);
+                downloadPollInterval = null;
+            }
+            if (activeCard) {
+                activeCard.classList.remove('downloading');
+                activeCard = null;
+            }
+            isStreaming = false;
+            grid.innerHTML = '';
+            
+            // Handle empty results
+            if (!movies || movies.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">No results found</div>';
+                return;
+            }
+            
+            movies.forEach(movie => {
+                const card = document.createElement('div');
+                card.className = 'movie-card';
+                
+                let posterHtml;
+                if (movie.poster) {
+                    posterHtml = `<img src="${movie.poster}" alt="${movie.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="placeholder-thumb" style='display:none'></div>`;
+                } else if (movie.name) {
+                    // apibay result - no poster, show placeholder
+                    posterHtml = `<div class="placeholder-thumb"></div>`;
+                } else {
+                    posterHtml = `<div class="placeholder-thumb"></div>`;
+                }
+                
+                const title = movie.title || movie.name || 'Unknown';
+                const year = movie.year || '';
+                const rating = movie.rating ? Math.round(movie.rating / 2) : 0;
+                const ratingDisplay = movie.rating ? `<span class="rating-value">${movie.rating}/10</span>` : '';
+                const seeders = movie.seeders ? `Seeders: ${movie.seeders}` : '';
+                const resolution = movie.resolution || '';
+                const overview = movie.overview || '';
+                
+                let starsHtml = '';
+                for (let i = 1; i <= 5; i++) {
+                    if (i <= rating) {
+                        starsHtml += '<span class="star filled">★</span>';
+                    } else {
+                        starsHtml += '<span class="star">★</span>';
+                    }
+                }
+                
+                const infoHash = movie.info_hash || '';
+                const dlKey = infoHash || '';
+                
+                const resolutionHtml = resolution ? `<div class="resolution">${resolution}</div>` : '';
+
+                card.innerHTML = `
+                    <div class="poster-container">
+                        ${posterHtml}
+                        <div class="description">${overview}</div>
+                        <div class="play-btn"></div>
+                        <div class="dl-progress-mini"><div class="dl-progress-mini-fill"></div><span class="dl-progress-mini-text"></span></div>
+                        <div class="download-overlay">
+                            <div class="dl-title">${title}</div>
+                            <div class="dl-progress-bar"><div class="dl-progress-fill"></div></div>
+                            <div class="dl-percent">0%</div>
+                            <div class="dl-size">0 B / 0 B</div>
+                            <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
+                        </div>
+                    </div>
+                    <div class="info">
+                        <div class="year-rating"><span class="year-value">${year}</span> ${ratingDisplay}</div>
+                        <div class="stars">${starsHtml}</div>
+                        <div class="title">${title}</div>
+                        <div class="seeders">${seeders}</div>
+                        ${resolutionHtml}
+                        <div class="resolution-list"></div>
+                        <div class="seeders-loading"></div>
+                    </div>
+                `;
+                
+                if (dlKey) {
+                    card.dataset.infoHash = dlKey;
+                }
+                
+                if (year) {
+                    card.dataset.movieYear = year;
+                }
+                
+                if (movie.poster && !movie.seeders) {
+                    card.dataset.movieTitle = title;
+                    card.onmouseenter = () => setupTorrentHover(card, title, year);
+                    card.onmouseleave = () => clearTorrentHover(title);
+                    if (torrentCache[title]) {
+                        updateCardWithTorrent(card, torrentCache[title]);
+                    }
+                }
+                
+                card.onclick = (e) => {
+                    if (e.target.closest('.resolution-item')) return;
+                    playMovie(movie, source, card);
+                };
+                grid.appendChild(card);
+            });
+            
+            // Check if there's an active download/playback and show play button
+            checkPlayable();
+            loadDownloads();
+        }
+        
+        function setupTorrentHover(card, title, year) {
+            if (hoverTimeouts[title]) {
+                clearTimeout(hoverTimeouts[title]);
+            }
+            
+            hoverTimeouts[title] = setTimeout(() => {
+                if (torrentCache[title] && torrentCache[title].length > 0 && torrentCache[title][0].size !== undefined) {
+                    updateCardWithTorrent(card, torrentCache[title]);
+                    return;
+                }
+                
+                if (pendingFetches[title]) {
+                    return;
+                }
+                
+                const loadingEl = card.querySelector('.seeders-loading');
+                if (loadingEl) {
+                    loadingEl.textContent = '...';
+                }
+                
+                pendingFetches[title] = true;
+                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
+                    .then(resp => {
+                        if (!resp.ok) {
+                            if (loadingEl) loadingEl.textContent = '';
+                            pendingFetches[title] = false;
+                            return;
+                        }
+                        return resp.json();
+                    })
+                    .then(data => {
+                        pendingFetches[title] = false;
+                        if (data && data.length > 0) {
+                            torrentCache[title] = data;
+                            updateCardWithTorrent(card, data);
+                        } else {
+                            if (loadingEl) loadingEl.textContent = '';
+                        }
+                    })
+                    .catch(() => {
+                        pendingFetches[title] = false;
+                        if (loadingEl) loadingEl.textContent = '';
+                    });
+            }, 300);
+        }
+        
+        function clearTorrentHover(title) {
+            if (hoverTimeouts[title]) {
+                clearTimeout(hoverTimeouts[title]);
+                hoverTimeouts[title] = null;
+            }
+        }
+        
+        function updateCardWithTorrent(card, torrents) {
+            const loadingEl = card.querySelector('.seeders-loading');
+            if (loadingEl) loadingEl.textContent = '';
+            
+            const listEl = card.querySelector('.resolution-list');
+            if (!listEl) return;
+            
+            if (listEl.children.length === torrents.length) return;
+            
+            const seedersEl = card.querySelector('.seeders');
+            if (seedersEl) seedersEl.style.display = 'none';
+            
+            const resEl = card.querySelector('.resolution');
+            if (resEl) resEl.style.display = 'none';
+            
+            listEl.innerHTML = '';
+            listEl.classList.add('visible');
+            
+            torrents.forEach(torrent => {
+                const item = document.createElement('div');
+                item.className = 'resolution-item';
+                
+                const label = document.createElement('span');
+                label.className = 'res-label';
+                label.textContent = torrent.resolution || 'N/A';
+                
+                const size = document.createElement('span');
+                size.className = 'res-size';
+                const sizeBytes = parseInt(torrent.size || 0, 10);
+                size.textContent = sizeBytes > 0 ? formatSize(sizeBytes) : '';
+                
+                const seeders = document.createElement('span');
+                seeders.className = 'res-seeders';
+                seeders.textContent = `${torrent.seeders || 0} seeders`;
+                
+                item.appendChild(label);
+                item.appendChild(size);
+                item.appendChild(seeders);
+                
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    startDownloadFromTorrent(card, torrent);
+                };
+                
+                listEl.appendChild(item);
+            });
+        }
+        
+        async function loadDownloads() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                
+                document.querySelectorAll('.movie-card').forEach(card => {
+                    const miniFill = card.querySelector('.dl-progress-mini-fill');
+                    const miniText = card.querySelector('.dl-progress-mini-text');
+                    if (miniFill) miniFill.style.width = '0%';
+                    if (miniText) miniText.textContent = '';
+                });
+                
+                if (data.status === 'downloading' && data.info_hash) {
+                    const activeCardEl = document.querySelector(`.movie-card[data-info-hash="${data.info_hash}"]`);
+                    if (activeCardEl) {
+                        const percent = data.percent || 0;
+                        const miniFill = activeCardEl.querySelector('.dl-progress-mini-fill');
+                        const miniText = activeCardEl.querySelector('.dl-progress-mini-text');
+                        if (miniFill) miniFill.style.width = percent + '%';
+                        if (miniText) miniText.textContent = percent + '%';
+                    }
+                }
+            } catch (e) {}
+        }
+        
+        async function startDownloadFromTorrent(card, torrent) {
+            console.log('startDownloadFromTorrent:', torrent.name, torrent.info_hash);
+            
+            // If this exact torrent is already downloading, just show progress
+            try {
+                const statusResp = await fetch('/api/status');
+                const statusData = await statusResp.json();
+                
+                if (statusData.status === 'downloading' && statusData.info_hash === torrent.info_hash) {
+                    if (activeCard && activeCard !== card) {
+                        activeCard.classList.remove('downloading');
+                        activeCard.classList.remove('playable');
+                    }
+                    if (downloadPollInterval) {
+                        clearInterval(downloadPollInterval);
+                    }
+                    activeCard = card;
+                    card.classList.add('downloading');
+                    downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
+                    return;
+                }
+                
+                // Different torrent or nothing - cancel old and start new
+                if (statusData.status === 'downloading' || statusData.status === 'ready') {
+                    await cancelDownload();
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            } catch (e) {
+                console.error('Status check error:', e);
+            }
+            
+            if (activeCard && activeCard !== card) {
+                activeCard.classList.remove('downloading');
+                activeCard.classList.remove('playable');
+            }
+            if (downloadPollInterval) {
+                clearInterval(downloadPollInterval);
+                downloadPollInterval = null;
+            }
+            isStreaming = false;
+            
+            activeCard = card;
+            card.classList.add('downloading');
+            card.dataset.infoHash = torrent.info_hash;
+            
+            try {
+                const resp = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ magnet: torrent.magnet, info_hash: torrent.info_hash, name: torrent.name })
+                });
+                
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    console.error('Failed to start download:', errData);
+                    card.classList.remove('downloading');
+                    activeCard = null;
+                    return;
+                }
+                
+                console.log('Download started successfully');
+                downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
+            } catch (e) {
+                console.error('Fetch error:', e);
+                card.classList.remove('downloading');
+                activeCard = null;
+            }
+        }
+        
+        async function playMovie(movie, source, card) {
+            // Determine what torrent we want for this click
+            let magnet, info_hash, name;
+            
+            if (movie.magnet && movie.info_hash) {
+                magnet = movie.magnet;
+                info_hash = movie.info_hash;
+                name = movie.name;
+            } else if (source === 'apibay') {
+                magnet = movie.magnet;
+                info_hash = movie.info_hash;
+                name = movie.name;
+            } else {
+                const query = movie.title;
+                const year = movie.year || card.dataset.movieYear || '';
+                const torrentResp = await fetch(`/api/torrent?q=${encodeURIComponent(query)}&category=${currentCategory}&year=${encodeURIComponent(year)}`);
+                
+                if (!torrentResp.ok) {
+                    alert('No torrent found for this movie');
+                    return;
+                }
+                
+                const torrents = await torrentResp.json();
+                if (torrents.length === 0) {
+                    alert('No torrent found for this movie');
+                    return;
+                }
+                
+                const best = torrents[0];
+                magnet = best.magnet;
+                info_hash = best.info_hash;
+                name = best.name;
+            }
+            
+            // Check if this exact torrent is already downloading/ready
+            const statusResp = await fetch('/api/status');
+            const statusData = await statusResp.json();
+            
+            if (statusData.info_hash && statusData.info_hash === info_hash) {
+                // Same torrent - resume or play
+                if (activeCard && activeCard !== card) {
+                    activeCard.classList.remove('downloading');
+                    activeCard.classList.remove('playable');
+                }
+                if (downloadPollInterval) {
+                    clearInterval(downloadPollInterval);
+                }
+                activeCard = card;
+                card.classList.add('downloading');
+                card.dataset.infoHash = info_hash;
+                
+                if (statusData.status === 'ready') {
+                    startPlayback();
+                } else if (statusData.is_valid && statusData.downloaded_size >= 5 * 1024 * 1024) {
+                    startPlayback();
+                } else {
+                    downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
+                }
+                return;
+            }
+            
+            // Different torrent or nothing - cancel old and start new
+            if (statusData.status === 'downloading' || statusData.status === 'ready') {
+                await cancelDownload();
+                await new Promise(r => setTimeout(r, 500));
+            }
+            
+            if (activeCard && activeCard !== card) {
+                activeCard.classList.remove('downloading');
+                activeCard.classList.remove('playable');
+            }
+            if (downloadPollInterval) {
+                clearInterval(downloadPollInterval);
+                downloadPollInterval = null;
+            }
+            
+            activeCard = card;
+            card.classList.add('downloading');
+            card.dataset.infoHash = info_hash;
+            isStreaming = false;
+            
+            await fetch('/api/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({magnet, info_hash, name})
+            });
+            
+            downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
+        }
+        
+        let isStreaming = false;
+        
+        async function checkDownload(card, expectedInfoHash) {
+            if (!document.body.contains(card)) {
+                if (downloadPollInterval) {
+                    clearInterval(downloadPollInterval);
+                    downloadPollInterval = null;
+                }
+                return;
+            }
+            
+            const resp = await fetch('/api/status');
+            const data = await resp.json();
+            
+            console.log('Status:', data);
+            
+            if (data.info_hash && expectedInfoHash && data.info_hash !== expectedInfoHash) {
+                return;
+            }
+            
+            const overlay = card.querySelector('.download-overlay');
+            const progressFill = card.querySelector('.dl-progress-fill');
+            const percentEl = card.querySelector('.dl-percent');
+            const sizeEl = card.querySelector('.dl-size');
+            
+            if (data.status === 'ready') {
+                console.log('Ready to play, downloaded:', data.downloaded_size || 'unknown');
+                
+                card.classList.add('playable');
+                
+                if (!isStreaming) {
+                    isStreaming = true;
+                    startPlayback();
+                }
+            } else if (data.status === 'error') {
+                if (downloadPollInterval) {
+                    clearInterval(downloadPollInterval);
+                    downloadPollInterval = null;
+                }
+                percentEl.textContent = 'Error';
+            } else if (data.downloaded_size !== undefined) {
+                const downloaded = data.downloaded_size;
+                const totalSize = data.total_size || 0;
+                const isValid = data.is_valid;
+                const percent = data.percent || 0;
+                
+                percentEl.textContent = percent + '%';
+                progressFill.style.width = percent + '%';
+                if (totalSize > 0) {
+                    sizeEl.textContent = `${formatSize(downloaded)} / ${formatSize(totalSize)}`;
+                } else {
+                    sizeEl.textContent = formatSize(downloaded);
+                }
+                
+                // Update mini progress bar on card
+                const miniFill = card.querySelector('.dl-progress-mini-fill');
+                const miniText = card.querySelector('.dl-progress-mini-text');
+                if (miniFill) miniFill.style.width = percent + '%';
+                if (miniText) miniText.textContent = percent + '%';
+                
+                const playableThreshold = 5 * 1024 * 1024;
+                
+                if (downloaded >= playableThreshold && isValid) {
+                    card.classList.add('playable');
+                }
+                
+                if (!isStreaming && downloaded >= playableThreshold && isValid) {
+                    isStreaming = true;
+                    startPlayback();
+                }
+            } else {
+                percentEl.textContent = 'Starting...';
+            }
+        }
+        
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+        
+        async function startPlayback() {
+            try {
+                const resp = await fetch('/api/play', { method: 'POST' });
+                const data = await resp.json();
+                
+                if (!resp.ok) {
+                    console.error('Playback error:', data.error);
+                } else {
+                    checkPlayable();
+                }
+            } catch (e) {
+                console.error('Playback error:', e.message);
+            }
+        }
+        
+        async function checkPlayable() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                
+                // Remove playable class from all cards first
+                document.querySelectorAll('.movie-card.playable').forEach(c => c.classList.remove('playable'));
+                
+                if (data.status === 'ready' || data.status === 'downloading') {
+                    if (activeCard) {
+                        activeCard.classList.add('playable');
+                    }
+                }
+            } catch (e) {}
+        }
+        
+        // Expose pyqt object to JS
+        window.pyqt = null;
+        
+        async function cancelDownload() {
+            await fetch('/api/play/stop', { method: 'POST' }).catch(() => {});
+            if (downloadPollInterval) {
+                clearInterval(downloadPollInterval);
+                downloadPollInterval = null;
+            }
+            if (activeCard) {
+                activeCard.classList.remove('downloading');
+                activeCard = null;
+            }
+            statusBar.classList.remove('active');
+            isStreaming = false;
+        }
+        
+        // Search functionality
+        let searchTimeout;
+        
+        function cancelCurrentSearch() {
+            if (searchPollInterval) {
+                clearInterval(searchPollInterval);
+                searchPollInterval = null;
+            }
+            if (currentSearchId) {
+                fetch('/api/search/cancel', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({search_id: currentSearchId})
+                }).catch(() => {});
+                currentSearchId = null;
+            }
+        }
+        
+        function pollSearchProgress() {
+            if (!currentSearchId) return;
+            
+            searchPollInterval = setInterval(() => {
+                fetch(`/api/search/progress?id=${currentSearchId}`)
+                    .then(resp => resp.json())
+                    .then(data => {
+                        if (data.cancelled) {
+                            if (searchPollInterval) clearInterval(searchPollInterval);
+                            searchPollInterval = null;
+                            currentSearchId = null;
+                            return;
+                        }
+                        
+                        const totalPages = data.total_pages || 1;
+                        currentTotalPages = totalPages;
+                        
+                        // Enable next button only if more pages are fetched
+                        const nextBtn = document.getElementById('next-btn');
+                        if (nextBtn) {
+                            nextBtn.disabled = currentPage >= data.pages_fetched || currentPage >= totalPages;
+                        }
+                        
+                        // Update page info display
+                        const pageInfo = document.getElementById('page-info');
+                        if (pageInfo) {
+                            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+                        }
+                        
+                        if (data.done) {
+                            if (searchPollInterval) clearInterval(searchPollInterval);
+                            searchPollInterval = null;
+                            currentSearchId = null;
+                        }
+                    })
+                    .catch(() => {});
+            }, 500);
+        }
+        
+        function performSearch(query, page = 1) {
+            // Always show pagination
+            const pagination = document.getElementById('pagination');
+            pagination.style.display = 'flex';
+            
+            // Cancel any existing streaming search
+            cancelCurrentSearch();
+            
+            if (!query) {
+                loadPopular(1);
+                return;
+            }
+            
+            currentSearchQuery = query;
+            currentSource = 'search';
+            
+            // If in YEAR mode and query is a 4-digit year, search API by year
+            if (currentSort === 'year' && /^\d{4}$/.test(query)) {
+                fetch(`/api/search?q=&year=${encodeURIComponent(query)}&sort=${currentSort}&category=${currentCategory}&page=${page}`)
+                    .then(resp => resp.json())
+                    .then(data => {
+                        const results = data.results || data;
+                        currentPage = data.page || 1;
+                        currentTotalPages = data.total_pages || 1;
+                        renderMovies(results, 'search');
+                        updatePagination(currentTotalPages);
+                    })
+                    .catch(err => console.error('Search error:', err));
+                return;
+            }
+            
+            // For all other modes, use backend search with sort and category parameters
+            fetch(`/api/search?q=${encodeURIComponent(query)}&sort=${currentSort}&category=${currentCategory}&page=${page}`)
+                .then(resp => resp.json())
+                .then(data => {
+                    const results = data.results || data;
+                    currentPage = data.page || 1;
+                    currentTotalPages = data.total_pages || 1;
+                    console.log('Search source:', data.sources, 'results:', results.length);
+                    renderMovies(results, 'search');
+                    updatePagination(currentTotalPages);
+                    
+                    if (data.streaming && data.search_id) {
+                        currentSearchId = data.search_id;
+                        if (!data.done) {
+                            pollSearchProgress();
+                        }
+                    }
+                })
+                .catch(err => console.error('Search error:', err));
+        }
+        
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (query.length < 2) {
+                    if (query.length === 0) {
+                        cancelCurrentSearch();
+                        loadPopular(1);
+                    }
+                    return;
+                }
+                performSearch(query);
+            }, 1000);
+        });
+        
+        // Load popular on start
+        loadPopular();
+        
+        async function openDownloadsFolder() {
+            try {
+                const resp = await fetch('/api/open-downloads', { method: 'POST' });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    console.error('Failed to open downloads folder:', err);
+                }
+            } catch (e) {
+                console.error('Open downloads error:', e);
+            }
+        }
+    </script>
+</body>
+</html>

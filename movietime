@@ -1,0 +1,1423 @@
+#!/usr/bin/env python3
+import os
+os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-gpu-compositing"
+
+import subprocess
+import time
+import threading
+import json
+import requests
+from flask import Flask, render_template, jsonify, request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# PyQt5 imports for desktop app
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtCore import QUrl, QObject, pyqtSlot, QEvent
+from PyQt5.QtWebChannel import QWebChannel
+from PyQt5.QtGui import QIcon
+from PyQt5.QtNetwork import QLocalServer
+
+# libtorrent for sequential torrent downloads
+import libtorrent as lt
+
+app = Flask(__name__)
+
+@app.after_request
+def add_no_cache(response):
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+# Try to find qwebchannel.js from PyQt5
+import glob
+qwebchannel_path = None
+for p in glob.glob("/usr/lib/python*/site-packages/PyQt5/Qt5/libexec/webchannel/qwebchannel.js"):
+    qwebchannel_path = p
+    break
+if not qwebchannel_path:
+    for p in glob.glob("/usr/share/PyQt5/Qt5/libexec/webchannel/qwebchannel.js"):
+        qwebchannel_path = p
+        break
+
+@app.route("/qwebchannel.js")
+def serve_qwebchannel():
+    """Serve qwebchannel.js for Qt WebChannel"""
+    if qwebchannel_path and os.path.exists(qwebchannel_path):
+        with open(qwebchannel_path, "r") as f:
+            return f.read(), 200, {"Content-Type": "application/javascript"}
+    return "/* qwebchannel.js not found */", 404
+DOWNLOAD_DIR = "./downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+TMDB_API_KEY = "6ee1592d2aa6879294c1a8bf597095d1"
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
+
+# Cache file for popular movies
+CACHE_FILE = "movies_cache.json"
+CACHE_MAX_AGE = 24 * 3600  # 24 hours in seconds
+CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
+
+# Cache progress tracking
+cache_progress = {"pages_fetched": 0, "total_pages": 0, "status": "idle"}
+
+# Thread pool for parallel API calls
+executor = ThreadPoolExecutor(max_workers=10)
+
+def get_popular_movies(page=1):
+    """Fetch popular movies from TMDb"""
+    url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=en-US&page={page}"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        movies = []
+        for m in data.get("results", []):
+            movies.append({
+                "id": m.get("id"),
+                "title": m.get("title"),
+                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                "overview": m.get("overview", ""),
+                "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
+                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None
+            })
+        return {"movies": movies, "page": data.get("page", 1), "total_pages": data.get("total_pages", 1)}
+    except Exception as e:
+        print(f"Error fetching movies: {e}")
+        return {"movies": [], "page": 1, "total_pages": 1}
+
+def fetch_movie_page(page):
+    """Fetch a single page of movies from TMDb popular API"""
+    url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=en-US&page={page}"
+    try:
+        resp = requests.get(url, timeout=15)
+        data = resp.json()
+        movies = []
+        for m in data.get("results", []):
+            movies.append({
+                "id": m.get("id"),
+                "title": m.get("title"),
+                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                "overview": m.get("overview", ""),
+                "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
+                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None
+            })
+        return movies, data.get("total_pages", 1)
+    except Exception as e:
+        print(f"Error fetching page {page}: {e}")
+        return [], 0
+
+def fetch_and_cache_popular_movies():
+    """Fetch ALL available movies from TMDb and save to cache file"""
+    global cache_progress
+    MAX_PAGES = 500
+    all_movies = []
+
+    print("Building complete movie cache (fetching ALL movies from TMDb)...")
+    print("This may take a few minutes...")
+
+    cache_progress = {"pages_fetched": 0, "total_pages": MAX_PAGES, "status": "running"}
+
+    first_page, total_pages = fetch_movie_page(1)
+    all_movies.extend(first_page)
+    cache_progress["pages_fetched"] = 1
+    cache_progress["total_pages"] = min(total_pages, MAX_PAGES)
+
+    print(f"Total pages available: {total_pages}, fetching up to {MAX_PAGES} pages...")
+
+    pages_to_fetch = min(total_pages, MAX_PAGES)
+
+    batch_size = 5
+    for batch_start in range(2, pages_to_fetch + 1, batch_size):
+        batch_end = min(batch_start + batch_size, pages_to_fetch + 1)
+        pages_in_batch = range(batch_start, batch_end)
+
+        futures = {executor.submit(fetch_movie_page, page): page for page in pages_in_batch}
+
+        for future in as_completed(futures):
+            try:
+                results, _ = future.result()
+                all_movies.extend(results)
+                cache_progress["pages_fetched"] += 1
+            except Exception as e:
+                print(f"Error collecting page results: {e}")
+
+        print(f"Fetched {len(all_movies)} movies so far...")
+
+    cache_data = {
+        "movies": all_movies,
+        "timestamp": time.time(),
+        "total": len(all_movies),
+        "type": "all"
+    }
+
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache_data, f)
+        print(f"Complete cache saved: {len(all_movies)} movies!")
+    except Exception as e:
+        print(f"Error saving cache: {e}")
+
+    cache_progress["status"] = "complete"
+
+    return cache_data
+
+def load_cached_movies():
+    """Load movies from cache file if it exists and is fresh"""
+    if not os.path.exists(CACHE_FILE):
+        return None
+
+    try:
+        with open(CACHE_FILE, "r") as f:
+            cache_data = json.load(f)
+
+        age = time.time() - cache_data.get("timestamp", 0)
+        if age > CACHE_MAX_AGE:
+            print(f"Cache is stale (age: {age/3600:.1f} hours), refreshing...")
+            return None
+
+        print(f"Loaded {len(cache_data.get('movies', []))} movies from cache")
+        return cache_data
+    except Exception as e:
+        print(f"Error loading cache: {e}")
+        return None
+
+def search_year_page(year, page):
+    """Fetch a single page of movies from TMDb discover API"""
+    url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&year={year}&page={page}"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        return data.get("results", [])
+    except Exception as e:
+        print(f"Error fetching page {page} for year {year}: {e}")
+        return []
+
+def search_year_parallel(year):
+    """Search movies by year using parallel requests"""
+    MAX_MOVIES = 500
+    MAX_PAGES = 25
+
+    first_page = search_year_page(year, 1)
+    if not first_page:
+        return []
+
+    pages_needed = min(MAX_PAGES, (MAX_MOVIES // 20) + 1)
+
+    futures = {executor.submit(search_year_page, year, page): page for page in range(2, pages_needed + 1)}
+
+    all_movies = []
+    for m in first_page:
+        year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+        if year_val == year:
+            all_movies.append({
+                "id": m.get("id"),
+                "title": m.get("title"),
+                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                "overview": m.get("overview", ""),
+                "year": year_val,
+                "source": "tmdb"
+            })
+
+    for future in as_completed(futures):
+        try:
+            results = future.result()
+            for m in results:
+                year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+                if year_val == year:
+                    all_movies.append({
+                        "id": m.get("id"),
+                        "title": m.get("title"),
+                        "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                        "overview": m.get("overview", ""),
+                        "year": year_val,
+                        "source": "tmdb"
+                    })
+        except Exception as e:
+            print(f"Error collecting results: {e}")
+
+    return all_movies
+
+import re
+
+def extract_resolution(name):
+    """Extract resolution from torrent name"""
+    if not name:
+        return ""
+    patterns = [
+        (r'(?i)\b2160p\b', '4K'),
+        (r'(?i)\b4[kK]\b', '4K'),
+        (r'(?i)\b[Uu][Hh][Dd]\b', '4K'),
+        (r'(?i)\b1080p\b', '1080p'),
+        (r'(?i)\b720p\b', '720p'),
+        (r'(?i)\b480p\b', '480p'),
+        (r'(?i)\b360p\b', '360p'),
+    ]
+    for pattern, label in patterns:
+        if re.search(pattern, name):
+            return label
+    return ""
+
+def score_torrent(name, title, year=""):
+    """Score a torrent by how well it matches the movie title and year"""
+    if not name or not title:
+        return 0
+
+    name_lower = name.lower()
+    title_lower = title.lower()
+
+    # Filter out non-movie content
+    noise_terms = ["trailer", "review", "soundtrack", "interview", "behind the scenes",
+                   "featurette", "making of", "documentary", "short film", "episode",
+                   "s01", "s02", "s03", "s04", "s05", "s06", "s07", "s08", "s09", "s10",
+                   "season", "complete series", "tv series",
+                   "ebook", "audiobook", "kindle", "kobo", "nook",
+                   "epub", "mobi", "azw3", "azw", "cbz", "cbr",
+                   "mp3", "flac", "m4b", "aax", "ogg", "wma"]
+    for noise in noise_terms:
+        if noise in name_lower:
+            return 0
+
+    # Normalize title: replace special chars with spaces
+    title_words = re.sub(r'[^a-z0-9\s]', ' ', title_lower).split()
+    name_words = set(re.sub(r'[^a-z0-9\s]', ' ', name_lower).split())
+
+    if not title_words:
+        return 0
+
+    # Exact title match (highest score)
+    clean_title = re.sub(r'[^a-z0-9\s]', ' ', title_lower).strip()
+    clean_name = re.sub(r'[^a-z0-9\s]', ' ', name_lower).strip()
+    if clean_title in clean_name or clean_name in clean_title:
+        return 200
+
+    # Word overlap score
+    match_count = sum(1 for w in title_words if w in name_words)
+    word_score = int((match_count / len(title_words)) * 100)
+
+    # Year match bonus
+    year_bonus = 0
+    if year and year.isdigit() and len(year) == 4:
+        if year in name:
+            year_bonus = 50
+        else:
+            # Wrong year is a penalty
+            year_bonus = -30
+
+    # Resolution bonus
+    res_bonus = 0
+    if extract_resolution(name):
+        res_bonus = 10
+
+    # Seeder bonus (log scale to avoid huge numbers)
+    try:
+        seeders = int(name.split(" ")[-1]) if name.split(" ")[-1].isdigit() else 0
+    except:
+        seeders = 0
+
+    total = word_score + year_bonus + res_bonus
+
+    # If we have at least half the title words, it's probably a match
+    if match_count >= len(title_words) // 2 + 1:
+        return total
+
+    # Otherwise only return if score is high enough
+    return total if total >= 60 else 0
+
+def search_apibay(query, category="all", year=""):
+    """Search apibay.org for torrents with relevance scoring"""
+    category_map = {
+        "all": [],
+        "movies": ["207"],
+        "tv": ["208"],
+        "music": ["104", "101"],
+        "adult": ["501", "505", "699"]
+    }
+    allowed_cats = category_map.get(category, [])
+
+    try:
+        url = f"https://apibay.org/q.php?q={query}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, timeout=10, headers=headers)
+        results = resp.json()
+
+        if not results or (isinstance(results, list) and len(results) == 0):
+            print(f"Empty response from apibay for query: {query}")
+            return []
+
+        torrents = []
+        for r in results:
+            name = r.get("name", "")
+            info_hash = r.get("info_hash", "")
+            seeders = r.get("seeders", "0")
+            cat = r.get("category", "")
+
+            if allowed_cats and cat not in allowed_cats:
+                continue
+
+            if not info_hash or len(info_hash) != 40:
+                continue
+
+            if info_hash:
+                magnet = f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
+                score = score_torrent(name, query, year)
+                torrents.append({
+                    "name": name,
+                    "info_hash": info_hash,
+                    "seeders": seeders,
+                    "magnet": magnet,
+                    "category": cat,
+                    "resolution": extract_resolution(name),
+                    "size": r.get("size", "0"),
+                    "score": score
+                })
+
+        # Sort by score descending, then by seeders
+        torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+
+        # Only return torrents with a positive score
+        return [t for t in torrents if t["score"] > 0 and t["resolution"]][:10]
+    except Exception as e:
+        print(f"Error searching apibay: {e}")
+        return []
+
+def search_tmdb_page(query, page):
+    """Fetch a single page of search results"""
+    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}&page={page}"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        return data.get("results", [])
+    except Exception as e:
+        print(f"Error fetching search page {page}: {e}")
+        return []
+
+def search_tmdb_multi_page(query, sort="all"):
+    """Search TMDb with multiple pages based on sort mode"""
+    MAX_MOVIES = 500
+    MAX_PAGES = 25
+
+    first_page = search_tmdb_page(query, 1)
+    if not first_page:
+        return []
+
+    pages_needed = min(MAX_PAGES, (MAX_MOVIES // 20) + 1)
+
+    futures = {executor.submit(search_tmdb_page, query, page): page for page in range(2, pages_needed + 1)}
+
+    all_movies = []
+
+    for m in first_page:
+        year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+        all_movies.append({
+            "id": m.get("id"),
+            "title": m.get("title"),
+            "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+            "overview": m.get("overview", ""),
+            "year": year_val,
+            "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+            "source": "tmdb"
+        })
+
+    for future in as_completed(futures):
+        try:
+            results = future.result()
+            for m in results:
+                year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+                all_movies.append({
+                    "id": m.get("id"),
+                    "title": m.get("title"),
+                    "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                    "overview": m.get("overview", ""),
+                    "year": year_val,
+                    "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+                    "source": "tmdb"
+                })
+        except Exception as e:
+            print(f"Error collecting search results: {e}")
+
+    if sort == "title":
+        all_movies.sort(key=lambda x: (x.get("title") or "").lower())
+    elif sort == "description":
+        query_lower = query.lower()
+        all_movies = [m for m in all_movies if query_lower in (m.get("overview") or "").lower()]
+    elif sort == "year":
+        all_movies.sort(key=lambda x: (x.get("year") or ""), reverse=True)
+
+    return all_movies
+
+# Active streaming searches with background fetching
+active_searches = {}
+search_cleanup_timer = None
+
+def start_search_background(search_id, query, sort, category):
+    """Background thread that fetches remaining pages for a search"""
+    global active_searches
+    MAX_MOVIES = 500
+    MAX_PAGES = 25
+    MOVIES_PER_PAGE = 100
+
+    search = active_searches.get(search_id)
+    if not search:
+        return
+
+    # Fetch page 1 to get total_pages estimate
+    first_page = search_tmdb_page(query, 1)
+    if search.get("cancelled"):
+        return
+    if not first_page:
+        with search["lock"]:
+            search["done"] = True
+        return
+
+    # Process first page
+    for m in first_page:
+        year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+        movie = {
+            "id": m.get("id"),
+            "title": m.get("title"),
+            "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+            "overview": m.get("overview", ""),
+            "year": year_val,
+            "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+            "source": "tmdb"
+        }
+        with search["lock"]:
+            search["results"].append(movie)
+
+    total_pages_estimate = min(MAX_PAGES, (MAX_MOVIES // 20) + 1)
+    with search["lock"]:
+        search["pages_fetched"] = 1
+        search["total_pages"] = total_pages_estimate
+        search["combined"] = list(search["results"])
+
+    # Fetch remaining pages in batches
+    pages_needed = range(2, total_pages_estimate + 1)
+    batch_size = 5
+    for batch_start in range(0, len(pages_needed), batch_size):
+        if search.get("cancelled"):
+            break
+
+        batch_end = min(batch_start + batch_size, len(pages_needed))
+        batch = pages_needed[batch_start:batch_end]
+
+        futures = {executor.submit(search_tmdb_page, query, page): page for page in batch}
+
+        for future in as_completed(futures):
+            if search.get("cancelled"):
+                break
+            try:
+                results = future.result()
+                for m in results:
+                    year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
+                    movie = {
+                        "id": m.get("id"),
+                        "title": m.get("title"),
+                        "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                        "overview": m.get("overview", ""),
+                        "year": year_val,
+                        "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+                        "source": "tmdb"
+                    }
+                    with search["lock"]:
+                        search["results"].append(movie)
+                        search["combined"].append(movie)
+                with search["lock"]:
+                    search["pages_fetched"] += 1
+                    search["total_pages"] = max(1, (len(search["combined"]) + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+            except Exception as e:
+                print(f"Error collecting search results: {e}")
+
+    # Final full rebuild with cache + apibay + dedup + sort (only once)
+    if search_id in active_searches and not search.get("cancelled"):
+        rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE)
+
+def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE):
+    """Full rebuild with cache + tmdb + apibay - only called once when streaming is done"""
+    global active_searches
+    search = active_searches.get(search_id)
+    if not search:
+        return
+
+    with search["lock"]:
+        tmdb_results = list(search["results"])
+
+    seen_titles = set()
+    combined = []
+
+    cache_data = load_cached_movies()
+    if cache_data:
+        all_movies = cache_data.get("movies", [])
+        query_lower = query.lower()
+        for m in all_movies:
+            title = m.get("title", "")
+            if query_lower in title.lower():
+                m["search_source"] = "cache"
+                normalized = title.lower().strip()
+                if normalized not in seen_titles:
+                    seen_titles.add(normalized)
+                    combined.append(m)
+
+    for m in tmdb_results:
+        title = m.get("title", "")
+        normalized = title.lower().strip()
+        if normalized not in seen_titles:
+            seen_titles.add(normalized)
+            m["search_source"] = "tmdb"
+            combined.append(m)
+
+    apibay_results = search_apibay(query, category)
+    for m in apibay_results:
+        title = m.get("name", "")
+        normalized = title.lower().strip()
+        if normalized not in seen_titles:
+            seen_titles.add(normalized)
+            m["search_source"] = "apibay"
+            m["title"] = title
+            m["year"] = ""
+            m["rating"] = None
+            combined.append(m)
+
+    if sort == "title":
+        combined.sort(key=lambda x: (x.get("title") or "").lower())
+    elif sort == "year":
+        combined.sort(key=lambda x: (x.get("year") or ""), reverse=True)
+    elif sort == "description":
+        query_lower = query.lower()
+        combined = [m for m in combined if query_lower in (m.get("overview") or "").lower()]
+
+    with search["lock"]:
+        search["combined"] = combined
+        search["total_pages"] = max(1, (len(combined) + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        search["done"] = True
+
+def cleanup_old_searches():
+    """Remove searches older than 5 minutes"""
+    global active_searches
+    now = time.time()
+    to_remove = [sid for sid, s in active_searches.items() if now - s["created"] > 300]
+    for sid in to_remove:
+        del active_searches[sid]
+
+def cleanup_timer_loop():
+    while True:
+        time.sleep(60)
+        cleanup_old_searches()
+
+threading.Thread(target=cleanup_timer_loop, daemon=True).start()
+
+# libtorrent session and download state
+lt_session = lt.session()
+lt_session.listen_on(6881, 6891)
+lt_session.add_dht_router("router.bittorrent.com", 6881)
+lt_session.start_dht()
+lt_session.start_lsd()
+lt_session.start_upnp()
+lt_session.start_natpmp()
+
+# Add public trackers for better peer discovery
+PUBLIC_TRACKERS = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://tracker.leechers-paradise.org:6969/announce",
+    "udp://tracker.coppersurfer.tk:6969/announce",
+    "udp://tracker.internetwarriors.net:1337/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://tracker.dler.org:2710/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://9.rarbg.com:2810/announce",
+]
+
+download_lock = threading.Lock()
+current_download = {
+    "handle": None,
+    "info_hash": None,
+    "name": None,
+    "video_file": None,
+}
+
+# Persistent download progress tracker
+download_progress = {}
+
+# mpv player state
+mpv_player = {
+    "process": None,
+    "playing": False,
+    "title": None,
+}
+mpv_lock = threading.Lock()
+
+def apply_sequential_priority(handle):
+    """Prioritize the video file's pieces so the header downloads first.
+    Must be called AFTER metadata has been received.
+    Sets non-video files to dont_download and prioritizes video file pieces.
+    """
+    ti = handle.get_torrent_info()
+    if not ti:
+        print("Warning: No torrent info available for piece priority")
+        return False
+
+    video_exts = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
+    best_file = None
+    best_size = 0
+
+    files = ti.files()
+    for i in range(len(files)):
+        f = files[i]
+        ext = os.path.splitext(f.path)[-1].lower()
+        if ext in video_exts and f.size > best_size:
+            best_file = i
+            best_size = f.size
+
+    if best_file is None:
+        print("Warning: No video file found in torrent, downloading all files")
+        return False
+
+    num_pieces = ti.num_pieces()
+    piece_length = ti.piece_length()
+
+    # In libtorrent 2.x, file offset is stored on the file_entry
+    file_offset = files[best_file].offset
+    file_size = files[best_file].size
+
+    # Map the video file's byte range to pieces
+    video_start_piece = file_offset // piece_length
+    video_end_piece = (file_offset + file_size + piece_length - 1) // piece_length
+    video_end_piece = min(video_end_piece, num_pieces)
+
+    # STEP 1: Set all non-video files to dont_download FIRST
+    for i in range(len(files)):
+        if i != best_file:
+            handle.file_priority(i, lt.download_priority_t.dont_download)
+
+    # Set the video file to normal priority
+    handle.file_priority(best_file, lt.download_priority_t.normal_priority)
+
+    # STEP 2: Now set piece priorities
+    # First, set ALL pieces to priority 0 (don't download)
+    for i in range(num_pieces):
+        handle.piece_priority(i, 0)
+
+    # STEP 3: Set video file pieces to priority 5 (normal)
+    for i in range(video_start_piece, video_end_piece):
+        handle.piece_priority(i, 5)
+
+    # STEP 4: Prioritize the first 10 pieces of the video file (header/metadata)
+    header_count = min(10, video_end_piece - video_start_piece)
+    for i in range(video_start_piece, video_start_piece + header_count):
+        handle.piece_priority(i, 7)
+
+    video_file_name = files[best_file].path
+    print(f"Applied sequential priority: '{video_file_name}' ({best_size / (1024*1024):.1f} MB)")
+    print(f"  Video pieces: {video_start_piece} to {video_end_piece} (of {num_pieces} total)")
+    print(f"  Header pieces: {video_start_piece} to {video_start_piece + header_count}")
+    print(f"  Non-video files set to dont_download: {len(files) - 1} files")
+
+    return True
+
+def download_torrent(magnet_link, info_hash, name):
+    """Download torrent using libtorrent with sequential piece priority"""
+    global current_download
+
+    with download_lock:
+        # Pause any existing download (keep data so it can resume later)
+        if current_download["handle"]:
+            try:
+                lt_session.remove_torrent(current_download["handle"], False)
+            except:
+                pass
+
+    # Build magnet link with trackers
+    tracker_params = "&tr=".join(PUBLIC_TRACKERS)
+    if tracker_params:
+        magnet_link = magnet_link + "&tr=" + tracker_params
+
+    print(f"Starting libtorrent download: {magnet_link[:80]}...")
+
+    atp = lt.parse_magnet_uri(magnet_link)
+    atp.save_path = os.path.abspath(DOWNLOAD_DIR)
+    atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
+
+    handle = lt_session.add_torrent(atp)
+
+    with download_lock:
+        current_download["handle"] = handle
+        current_download["info_hash"] = info_hash
+        current_download["name"] = name
+        current_download["video_file"] = None
+
+    download_progress[info_hash] = {
+        "name": name,
+        "total_size": 0,
+        "downloaded": 0,
+        "percent": 0,
+        "state": "downloading",
+    }
+
+    # For magnet links, metadata must be downloaded first.
+    # Poll until metadata arrives, then apply piece priorities.
+    def wait_for_metadata_and_apply():
+        for _ in range(120):  # wait up to 60 seconds
+            time.sleep(0.5)
+            if handle.has_metadata():
+                apply_sequential_priority(handle)
+                print(f"Metadata received, sequential priority applied for: {name}")
+                return
+        print(f"Warning: metadata not received within 60s for: {name}")
+
+    threading.Thread(target=wait_for_metadata_and_apply, daemon=True).start()
+
+def track_download_progress():
+    """Background thread that updates download_progress dict"""
+    while True:
+        time.sleep(2)
+        with download_lock:
+            handle = current_download["handle"]
+            if handle and handle.is_valid():
+                status = handle.status()
+                total_size = status.total_wanted
+                downloaded = status.total_wanted_done
+                info_hash = current_download["info_hash"]
+                name = current_download["name"] or "Unknown"
+
+                if total_size > 0:
+                    download_progress[info_hash] = {
+                        "name": name,
+                        "total_size": total_size,
+                        "downloaded": downloaded,
+                        "percent": int((downloaded / total_size) * 100),
+                        "state": "downloading",
+                    }
+                else:
+                    download_progress[info_hash] = {
+                        "name": name,
+                        "total_size": total_size,
+                        "downloaded": downloaded,
+                        "percent": 0,
+                        "state": "downloading",
+                    }
+
+# Start the tracking thread
+threading.Thread(target=track_download_progress, daemon=True).start()
+
+def find_video_file():
+    """Find the most recent video file in download directory (including subdirectories)"""
+    video_exts = [".mp4", ".mkv", ".avi", ".webm", ".mov"]
+    newest_file = None
+    newest_time = 0
+
+    for root, dirs, files in os.walk(DOWNLOAD_DIR):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in video_exts:
+                full_path = os.path.join(root, f)
+                if os.path.getsize(full_path) > 0:
+                    mtime = os.path.getmtime(full_path)
+                    if mtime > newest_time:
+                        newest_time = mtime
+                        newest_file = full_path
+
+    return newest_file
+
+def is_valid_video_file(file_path):
+    """Check if file has a valid video header"""
+    if not file_path or not os.path.exists(file_path):
+        return False
+
+    try:
+        file_size = os.path.getsize(file_path)
+        if file_size < 1024:
+            return False
+
+        with open(file_path, "rb") as f:
+            header = f.read(4096)
+
+        if len(header) < 4:
+            return False
+
+        if header[:4] == b'\x1a\x45\xdf\xa3':
+            return True
+
+        if header[:4] == b'RIFF':
+            return True
+
+        if header[4:8] == b'ftyp':
+            return True
+
+        for i in range(len(header) - 4):
+            if header[i:i+4] == b'\x00\x00\x00\x01':
+                return True
+
+        non_zero = sum(1 for b in header if b != 0)
+        if non_zero < len(header) * 0.1:
+            return False
+
+        return True
+
+    except Exception as e:
+        print(f"Error checking video file: {e}")
+        return False
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/api/popular")
+def api_popular():
+    """Get popular movies - uses cache if available, with pagination (100 per page)"""
+    page = request.args.get("page", "1")
+    try:
+        page = int(page)
+    except:
+        page = 1
+
+    MOVIES_PER_PAGE = 100
+
+    cache_data = load_cached_movies()
+
+    if cache_data:
+        all_movies = cache_data.get("movies", [])
+        total_movies = len(all_movies)
+        total_pages = (total_movies + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
+
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        page_movies = all_movies[start_idx:end_idx]
+
+        return jsonify({
+            "movies": page_movies,
+            "page": page,
+            "total_pages": total_pages,
+            "cached": True,
+            "total_movies": total_movies
+        })
+
+    cache_data = fetch_and_cache_popular_movies()
+    all_movies = cache_data.get("movies", [])
+    total_movies = len(all_movies)
+    total_pages = (total_movies + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
+
+    start_idx = (page - 1) * MOVIES_PER_PAGE
+    end_idx = start_idx + MOVIES_PER_PAGE
+    page_movies = all_movies[start_idx:end_idx]
+
+    return jsonify({
+        "movies": page_movies,
+        "page": page,
+        "total_pages": total_pages,
+        "cached": False,
+        "total_movies": total_movies
+    })
+
+@app.route("/api/search")
+def api_search():
+    """Search movies with streaming results - page 1 returned immediately, rest fetched in background"""
+    query = request.args.get("q", "").strip()
+    year = request.args.get("year", "").strip()
+    sort = request.args.get("sort", "all").strip()
+    category = request.args.get("category", "all").strip()
+    page = request.args.get("page", "1").strip()
+    try:
+        page = int(page)
+    except:
+        page = 1
+
+    MOVIES_PER_PAGE = 100
+
+    if category in ["tv", "music", "adult", "movies"]:
+        all_results = search_apibay(query, category)
+        total_results = len(all_results)
+        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        return jsonify({
+            "results": all_results[start_idx:end_idx],
+            "page": page,
+            "total_pages": total_pages,
+            "total_results": total_results,
+            "sources": {"apibay": total_results},
+            "streaming": False
+        })
+
+    if not query and not year:
+        all_movies = get_popular_movies().get("movies", [])
+        total_results = len(all_movies)
+        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        return jsonify({
+            "results": all_movies[start_idx:end_idx],
+            "page": page,
+            "total_pages": total_pages,
+            "total_results": total_results,
+            "sources": {"popular": total_results},
+            "streaming": False
+        })
+
+    if year and year.isdigit() and len(year) == 4:
+        all_results = search_year_parallel(year)
+        total_results = len(all_results)
+        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        return jsonify({
+            "results": all_results[start_idx:end_idx],
+            "page": page,
+            "total_pages": total_pages,
+            "total_results": total_results,
+            "sources": {"tmdb": total_results},
+            "streaming": False
+        })
+
+    # TMDb search - use streaming approach
+    import uuid
+    search_id = str(uuid.uuid4())
+
+    # Cancel any previous active searches (frontend should handle this, but safety net)
+    for sid in list(active_searches.keys()):
+        active_searches[sid]["cancelled"] = True
+
+    # Create search entry
+    active_searches[search_id] = {
+        "results": [],
+        "pages_fetched": 0,
+        "total_pages": 0,
+        "done": False,
+        "cancelled": False,
+        "lock": threading.Lock(),
+        "created": time.time()
+    }
+
+    # Start background fetcher
+    threading.Thread(
+        target=start_search_background,
+        args=(search_id, query, sort, category),
+        daemon=True
+    ).start()
+
+    # Wait briefly for first page to populate
+    time.sleep(1.5)
+
+    with active_searches[search_id]["lock"]:
+        search = active_searches[search_id]
+        all_results = list(search["results"])
+        pages_fetched = search["pages_fetched"]
+        total_pages_est = search["total_pages"]
+        done = search["done"]
+        combined_results = list(search.get("combined", []))
+
+    total_results = len(combined_results)
+    total_pages = search["total_pages"]
+    start_idx = (page - 1) * MOVIES_PER_PAGE
+    end_idx = start_idx + MOVIES_PER_PAGE
+    page_results = combined_results[start_idx:end_idx]
+
+    return jsonify({
+        "results": page_results,
+        "page": page,
+        "total_pages": total_pages,
+        "total_results": total_results,
+        "search_id": search_id,
+        "pages_fetched": pages_fetched,
+        "done": done,
+        "streaming": True,
+        "sources": {
+            "cache": 0,
+            "tmdb": total_results,
+            "apibay": 0
+        }
+    })
+
+@app.route("/api/search/page")
+def api_search_page():
+    """Get a specific page from an existing search - instant, no new search"""
+    search_id = request.args.get("id", "").strip()
+    page = request.args.get("page", "1").strip()
+    try:
+        page = int(page)
+    except:
+        page = 1
+
+    MOVIES_PER_PAGE = 100
+
+    if not search_id or search_id not in active_searches:
+        return jsonify({"error": "Search not found"}), 404
+
+    search = active_searches[search_id]
+    with search["lock"]:
+        combined = search.get("combined", [])
+        total_pages = search["total_pages"]
+        pages_fetched = search["pages_fetched"]
+        done = search["done"]
+
+    start_idx = (page - 1) * MOVIES_PER_PAGE
+    end_idx = start_idx + MOVIES_PER_PAGE
+    page_results = combined[start_idx:end_idx]
+
+    return jsonify({
+        "results": page_results,
+        "page": page,
+        "total_pages": total_pages,
+        "total_results": len(combined),
+        "pages_fetched": pages_fetched,
+        "done": done
+    })
+
+@app.route("/api/search/progress")
+def api_search_progress():
+    """Get progress of a streaming search"""
+    search_id = request.args.get("id", "").strip()
+    if not search_id or search_id not in active_searches:
+        return jsonify({"error": "Search not found"}), 404
+
+    search = active_searches[search_id]
+    with search["lock"]:
+        return jsonify({
+            "pages_fetched": search["pages_fetched"],
+            "total_pages": search["total_pages"],
+            "total_results": len(search.get("combined", [])),
+            "done": search["done"],
+            "cancelled": search["cancelled"]
+        })
+
+@app.route("/api/search/cancel", methods=["POST"])
+def api_search_cancel():
+    """Cancel a streaming search"""
+    data = request.json
+    search_id = data.get("search_id", "").strip()
+    if search_id and search_id in active_searches:
+        with active_searches[search_id]["lock"]:
+            active_searches[search_id]["cancelled"] = True
+    return jsonify({"status": "ok"})
+
+@app.route("/api/torrent")
+def api_torrent():
+    """Get torrent info for a movie (searches apibay)"""
+    query = request.args.get("q", "").strip()
+    category = request.args.get("category", "all").strip()
+    year = request.args.get("year", "").strip()
+    if not query:
+        return jsonify({"error": "No query"}), 400
+
+    torrents = search_apibay(query, category, year)
+    if not torrents:
+        return jsonify({"error": "No torrents found"}), 404
+
+    return jsonify(torrents)
+
+@app.route("/api/start", methods=["POST"])
+def api_start():
+    data = request.json
+    magnet = data.get("magnet")
+    info_hash = data.get("info_hash")
+    name = data.get("name", "")
+
+    if not magnet:
+        return jsonify({"error": "No magnet link"}), 400
+
+    threading.Thread(target=download_torrent, args=(magnet, info_hash, name)).start()
+
+    return jsonify({"status": "downloading", "name": name})
+
+@app.route("/api/cache/refresh", methods=["POST"])
+def api_cache_refresh():
+    """Force refresh the movie cache"""
+    cache_data = fetch_and_cache_popular_movies()
+    return jsonify({"status": "refreshed", "total": len(cache_data.get("movies", []))})
+
+@app.route("/api/cache/progress")
+def api_cache_progress():
+    """Get cache update progress"""
+    global cache_progress
+    if cache_progress["total_pages"] > 0:
+        percent = int((cache_progress["pages_fetched"] / cache_progress["total_pages"]) * 100)
+    else:
+        percent = 0
+    return jsonify({
+        "status": cache_progress["status"],
+        "percent": percent,
+        "pages_fetched": cache_progress["pages_fetched"],
+        "total_pages": cache_progress["total_pages"]
+    })
+
+@app.route("/api/status")
+def api_status():
+    """Check download status with progress using libtorrent"""
+    video_file = find_video_file()
+
+    with download_lock:
+        handle = current_download["handle"]
+
+    if handle and handle.is_valid():
+        status = handle.status()
+        progress = status.progress  # 0.0 to 1.0
+        total_size = status.total_wanted
+        downloaded = status.total_wanted_done
+        state = status.state
+
+        is_downloading = state not in (lt.torrent_status.seeding, lt.torrent_status.finished)
+        is_complete = state in (lt.torrent_status.seeding, lt.torrent_status.finished)
+
+        # Update video_file reference from libtorrent
+        if not video_file and is_complete:
+            video_file = find_video_file()
+
+        if video_file:
+            file_size = os.path.getsize(video_file)
+            valid = is_valid_video_file(video_file)
+
+            if is_complete and valid:
+                return jsonify({
+                    "status": "ready",
+                    "file": video_file,
+                    "downloaded_size": file_size,
+                    "is_valid": valid,
+                    "info_hash": current_download.get("info_hash"),
+                })
+
+            return jsonify({
+                "status": "downloading",
+                "downloaded_size": downloaded if downloaded > 0 else file_size,
+                "total_size": total_size,
+                "is_valid": valid,
+                "complete": is_complete,
+                "percent": int(progress * 100),
+                "info_hash": current_download.get("info_hash"),
+            })
+        else:
+            return jsonify({
+                "status": "downloading",
+                "downloaded_size": downloaded,
+                "total_size": total_size,
+                "is_valid": False,
+                "complete": is_complete,
+                "percent": int(progress * 100),
+                "info_hash": current_download.get("info_hash"),
+            })
+
+    if video_file:
+        file_size = os.path.getsize(video_file)
+        valid = is_valid_video_file(video_file)
+        if valid:
+            return jsonify({
+                "status": "ready",
+                "file": video_file,
+                "downloaded_size": file_size,
+                "is_valid": valid,
+            })
+
+    return jsonify({"status": "idle", "is_valid": False})
+
+def is_download_active():
+    """Check if libtorrent download is still in progress"""
+    with download_lock:
+        handle = current_download["handle"]
+    if handle and handle.is_valid():
+        status = handle.status()
+        return status.state not in (lt.torrent_status.seeding, lt.torrent_status.finished)
+    return False
+
+@app.route("/api/play", methods=["POST"])
+def api_play():
+    """Start playing the current download with mpv"""
+    video_file = find_video_file()
+
+    if not video_file or not os.path.exists(video_file):
+        return jsonify({"error": "No video file"}), 404
+
+    if not is_valid_video_file(video_file):
+        return jsonify({"error": "Video file not ready"}), 404
+
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+
+        try:
+            proc = subprocess.Popen(
+                ["mpv", "--fs", "--keep-open=yes", "--quiet", "--no-terminal",
+                 "--vo=gpu", "--hwdec=no", "--force-window=yes",
+                 "--demuxer-readahead-secs=30",
+                 video_file],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            mpv_player["process"] = proc
+            mpv_player["playing"] = True
+            mpv_player["title"] = os.path.basename(video_file)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"status": "playing", "file": video_file})
+
+@app.route("/api/play/status")
+def api_play_status():
+    """Get mpv playback status"""
+    with mpv_lock:
+        proc = mpv_player["process"]
+        if proc and proc.poll() is not None:
+            mpv_player["playing"] = False
+            mpv_player["process"] = None
+        return jsonify({
+            "playing": mpv_player["playing"],
+            "title": mpv_player["title"],
+        })
+
+@app.route("/api/play/stop", methods=["POST"])
+def api_play_stop():
+    """Stop mpv playback"""
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+            mpv_player["process"] = None
+            mpv_player["playing"] = False
+    return jsonify({"status": "stopped"})
+
+@app.route("/api/downloads")
+def api_downloads():
+    """Get all known download progress states"""
+    with download_lock:
+        return jsonify(download_progress)
+
+@app.route("/api/open-downloads", methods=["POST"])
+def api_open_downloads():
+    """Open downloads folder in file manager"""
+    import platform
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", os.path.abspath(DOWNLOAD_DIR)])
+        elif system == "Windows":
+            os.startfile(os.path.abspath(DOWNLOAD_DIR))
+        else:
+            subprocess.Popen(["xdg-open", os.path.abspath(DOWNLOAD_DIR)])
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+class MainWindow(QMainWindow):
+    """Main window for MovieTime desktop app"""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("MovieTime")
+        self.setGeometry(100, 100, 1200, 800)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.web_view = QWebEngineView()
+        self.web_view.setUrl(QUrl("http://127.0.0.1:65000"))
+
+        channel = QWebChannel()
+        self.pyqt_obj = PyQtBridge(self.web_view)
+        channel.registerObject('pyqt', self.pyqt_obj)
+        self.web_view.page().setWebChannel(channel)
+
+        layout.addWidget(self.web_view)
+
+    def closeEvent(self, event):
+        cleanup_on_exit()
+        event.accept()
+
+
+class PyQtBridge(QObject):
+    """Bridge object to expose Python functions to JavaScript"""
+
+    def __init__(self, web_view):
+        super().__init__()
+        self.web_view = web_view
+
+    @pyqtSlot(str)
+    def openExternal(self, url):
+        """Open URL in external browser"""
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl(url))
+
+
+def run_flask():
+    """Run Flask server in background thread"""
+    app.run(host="0.0.0.0", port=65000, debug=False, use_reloader=False)
+
+
+def cleanup_on_exit():
+    """Stop libtorrent session, mpv player, and restore terminal"""
+    global current_download
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+    with download_lock:
+        handle = current_download["handle"]
+        if handle and handle.is_valid():
+            try:
+                lt_session.remove_torrent(handle, False)
+            except:
+                pass
+    try:
+        import termios
+        import sys
+        fd = sys.stdin.fileno()
+        attrs = termios.tcgetattr(fd)
+        termios.tcsetattr(fd, termios.TCSADRAIN, attrs)
+        os.system("stty echo")
+    except:
+        pass
+
+
+def main():
+    """Entry point for desktop app"""
+    import sys
+    import signal
+
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    time.sleep(1)
+
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(True)
+    app.setApplicationName("MovieTime")
+
+    window = MainWindow()
+    window.show()
+
+    shutdown_requested = threading.Event()
+
+    def handle_signal(signum, frame):
+        shutdown_requested.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    # Use a QTimer to check shutdown flag from within Qt event loop
+    from PyQt5.QtCore import QTimer
+    timer = QTimer()
+    timer.setInterval(100)
+    timer.timeout.connect(lambda: app.quit() if shutdown_requested.is_set() else None)
+    timer.start()
+
+    try:
+        sys.exit(app.exec_())
+    finally:
+        cleanup_on_exit()
+
+
+if __name__ == "__main__":
+    main()
