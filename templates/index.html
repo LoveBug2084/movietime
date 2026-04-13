@@ -6,6 +6,20 @@
     <title>MovieTime</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            scrollbar-width: thin;
+            scrollbar-color: #0099ff transparent;
+        }
+        html::-webkit-scrollbar, body::-webkit-scrollbar {
+            width: 8px;
+        }
+        html::-webkit-scrollbar-track, body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb {
+            background: #0099ff;
+            border-radius: 4px;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #111;
@@ -198,20 +212,20 @@
             max-height: 110px;
             overflow-y: auto;
             scrollbar-width: thin;
-            scrollbar-color: #444 transparent;
+            scrollbar-color: #0099ff transparent;
             pointer-events: auto;
             position: relative;
             z-index: 30;
         }
         .movie-card .resolution-list::-webkit-scrollbar {
-            width: 4px;
+            width: 8px;
         }
         .movie-card .resolution-list::-webkit-scrollbar-track {
             background: transparent;
         }
         .movie-card .resolution-list::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 2px;
+            background: #0099ff;
+            border-radius: 4px;
         }
         .movie-card .resolution-list.visible {
             display: flex;
@@ -298,7 +312,7 @@
             bottom: 0;
             background: rgba(0,0,0,0.95);
             padding: 10px;
-            font-size: 12px;
+            font-size: 14px;
             color: #ccc;
             opacity: 0;
             transition: opacity 0.2s;
@@ -307,11 +321,18 @@
             z-index: 10;
             display: flex;
             align-items: flex-start;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
+            scrollbar-width: thin;
+            scrollbar-color: #0099ff transparent;
         }
         .movie-card .description::-webkit-scrollbar {
-            display: none;
+            width: 8px;
+        }
+        .movie-card .description::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .movie-card .description::-webkit-scrollbar-thumb {
+            background: #0099ff;
+            border-radius: 4px;
         }
         .movie-card:hover .description {
             opacity: 1;
