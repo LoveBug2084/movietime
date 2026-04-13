@@ -58,7 +58,6 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
 # Cache file for popular movies
 CACHE_FILE = "database/active.json"
 os.makedirs("database", exist_ok=True)
-CACHE_MAX_AGE = 24 * 3600  # 24 hours in seconds
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
 # Cache progress tracking
@@ -172,11 +171,6 @@ def load_cached_movies():
     try:
         with open(CACHE_FILE, "r") as f:
             cache_data = json.load(f)
-
-        age = time.time() - cache_data.get("timestamp", 0)
-        if age > CACHE_MAX_AGE:
-            print(f"Cache is stale (age: {age/3600:.1f} hours), refreshing...")
-            return None
 
         print(f"Loaded {len(cache_data.get('movies', []))} movies from cache")
         return cache_data

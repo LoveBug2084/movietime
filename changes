@@ -3,7 +3,7 @@ initial commit:
 This version upon start checks if there is a movie cache and if not it pulls all 500 pages * 20 movies of the most popular from tmdb to build a database of 10000 movies
 clicking on the moviecard or a torrent ijn the list starts a download, movie automatically plays when there is data buffered
 
-bugs:
+known issue:
 
 the when clicking on the next/prev page buttons the total pages count changes and its slow
 I think the search is being run every time
@@ -17,7 +17,13 @@ fixed - pagination now uses in-memory data:
 - Search results also stored in-memory for pagination
 - Initial search still shows live progress, but navigation after is instant
 
+changes:
+
 - reorganized cache storage:
   - Created database/ directory for movie cache
   - Renamed movies_cache.json to database/active.json
   - Updated CACHE_FILE path in movietime
+
+- added dark scrollbars to match the theme
+
+- removed 24 hour cache expiry, cache now never expires
