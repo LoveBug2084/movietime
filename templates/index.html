@@ -527,17 +527,20 @@
     
     <script>
         let currentMovies = [];
+        let displayMovies = [];
         let currentPage = 1;
         let currentSource = 'popular';
         let currentSort = 'all';
         let currentSearchQuery = '';
         let currentTotalPages = 1;
         let currentSearchId = null;
+        let searchResultsCache = [];
         let searchPollInterval = null;
         let torrentCache = {};
         let hoverTimeouts = {};
         let pendingFetches = {};
         let downloadPollInterval = null;
+        let popularLoaded = false;
         
         const grid = document.getElementById('grid');
         const searchInput = document.getElementById('search');
@@ -676,13 +679,25 @@
             cancelCurrentSearch();
             currentSource = 'popular';
             currentSearchQuery = '';
-            const resp = await fetch(`/api/popular?page=${page}`);
-            const data = await resp.json();
-            currentMovies = data.movies;
-            currentPage = data.page;
-            currentTotalPages = data.total_pages;
-            renderMovies(currentMovies, 'popular');
-            updatePagination(data.total_pages);
+            
+            if (!popularLoaded) {
+                const resp = await fetch('/api/popular/all');
+                const data = await resp.json();
+                displayMovies = data.movies || [];
+                popularLoaded = true;
+            }
+            
+            const MOVIES_PER_PAGE = 100;
+            currentTotalPages = Math.max(1, Math.ceil(displayMovies.length / MOVIES_PER_PAGE));
+            currentPage = Math.min(page, currentTotalPages);
+            
+            const startIdx = (currentPage - 1) * MOVIES_PER_PAGE;
+            const endIdx = startIdx + MOVIES_PER_PAGE;
+            const pageMovies = displayMovies.slice(startIdx, endIdx);
+            
+            currentMovies = pageMovies;
+            renderMovies(pageMovies, 'popular');
+            updatePagination(currentTotalPages);
         }
         
         function updatePagination(totalPages) {
@@ -693,29 +708,23 @@
         
         function changePage(delta) {
             const newPage = currentPage + delta;
-            if (newPage < 1) return;
+            if (newPage < 1 || newPage > currentTotalPages) return;
             
-            if (currentSource === 'search' && currentSearchId) {
-                fetch(`/api/search/page?id=${currentSearchId}&page=${newPage}`)
-                    .then(resp => resp.json())
-                    .then(data => {
-                        if (data.error) {
-                            performSearch(currentSearchQuery, newPage);
-                            return;
-                        }
-                        currentPage = newPage;
-                        currentTotalPages = data.total_pages || 1;
-                        renderMovies(data.results || [], 'search');
-                        updatePagination(currentTotalPages);
-                    })
-                    .catch(() => {
-                        performSearch(currentSearchQuery, newPage);
-                    });
-            } else if (currentSource === 'search' && currentSearchQuery) {
-                performSearch(currentSearchQuery, newPage);
+            const MOVIES_PER_PAGE = 100;
+            const startIdx = (newPage - 1) * MOVIES_PER_PAGE;
+            const endIdx = startIdx + MOVIES_PER_PAGE;
+            
+            let pageMovies;
+            if (currentSource === 'search') {
+                pageMovies = searchResultsCache.slice(startIdx, endIdx);
             } else {
-                loadPopular(newPage);
+                pageMovies = displayMovies.slice(startIdx, endIdx);
             }
+            
+            currentPage = newPage;
+            currentMovies = pageMovies;
+            renderMovies(pageMovies, currentSource);
+            updatePagination(currentTotalPages);
         }
         
         function renderMovies(movies, source) {
@@ -1257,6 +1266,7 @@
                 }).catch(() => {});
                 currentSearchId = null;
             }
+            searchResultsCache = [];
         }
         
         function pollSearchProgress() {
@@ -1273,19 +1283,25 @@
                             return;
                         }
                         
-                        const totalPages = data.total_pages || 1;
-                        currentTotalPages = totalPages;
+                        // Update cache with any new results
+                        if (data.combined && data.combined.length > searchResultsCache.length) {
+                            searchResultsCache = [...data.combined];
+                        }
                         
-                        // Enable next button only if more pages are fetched
+                        // Calculate total pages from cache
+                        const MOVIES_PER_PAGE = 100;
+                        currentTotalPages = Math.max(1, Math.ceil(searchResultsCache.length / MOVIES_PER_PAGE));
+                        
+                        // Enable next button only if more pages have been fetched
                         const nextBtn = document.getElementById('next-btn');
                         if (nextBtn) {
-                            nextBtn.disabled = currentPage >= data.pages_fetched || currentPage >= totalPages;
+                            nextBtn.disabled = currentPage >= data.pages_fetched || currentPage >= currentTotalPages;
                         }
                         
                         // Update page info display
                         const pageInfo = document.getElementById('page-info');
                         if (pageInfo) {
-                            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+                            pageInfo.textContent = `Page ${currentPage} of ${currentTotalPages}`;
                         }
                         
                         if (data.done) {
@@ -1320,9 +1336,12 @@
                     .then(resp => resp.json())
                     .then(data => {
                         const results = data.results || data;
-                        currentPage = data.page || 1;
-                        currentTotalPages = data.total_pages || 1;
-                        renderMovies(results, 'search');
+                        searchResultsCache = results;
+                        const MOVIES_PER_PAGE = 100;
+                        currentTotalPages = Math.max(1, Math.ceil(results.length / MOVIES_PER_PAGE));
+                        currentPage = 1;
+                        const pageResults = results.slice(0, MOVIES_PER_PAGE);
+                        renderMovies(pageResults, 'search');
                         updatePagination(currentTotalPages);
                     })
                     .catch(err => console.error('Search error:', err));
@@ -1334,10 +1353,21 @@
                 .then(resp => resp.json())
                 .then(data => {
                     const results = data.results || data;
-                    currentPage = data.page || 1;
-                    currentTotalPages = data.total_pages || 1;
                     console.log('Search source:', data.sources, 'results:', results.length);
-                    renderMovies(results, 'search');
+                    
+                    // Store all results for pagination
+                    if (data.combined && data.combined.length > 0) {
+                        searchResultsCache = data.combined;
+                    } else {
+                        searchResultsCache = results;
+                    }
+                    
+                    const MOVIES_PER_PAGE = 100;
+                    currentTotalPages = Math.max(1, Math.ceil(searchResultsCache.length / MOVIES_PER_PAGE));
+                    currentPage = 1;
+                    
+                    const pageResults = searchResultsCache.slice(0, MOVIES_PER_PAGE);
+                    renderMovies(pageResults, 'search');
                     updatePagination(currentTotalPages);
                     
                     if (data.streaming && data.search_id) {

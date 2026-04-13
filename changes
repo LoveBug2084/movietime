@@ -7,3 +7,12 @@ bugs:
 
 the when clicking on the next/prev page buttons the total pages count changes and its slow
 I think the search is being run every time
+
+fixed - pagination now uses in-memory data:
+
+- Added /api/popular/all endpoint to return full movie list from cache
+- Frontend now loads all popular movies once on startup
+- Next/Prev buttons now slice from in-memory array instead of calling API
+- Page count is calculated from array length, no longer fluctuates
+- Search results also stored in-memory for pagination
+- Initial search still shows live progress, but navigation after is instant

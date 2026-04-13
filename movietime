@@ -910,6 +910,17 @@ def api_popular():
         "total_movies": total_movies
     })
 
+@app.route("/api/popular/all")
+def api_popular_all():
+    """Get ALL popular movies from cache - no pagination"""
+    cache_data = load_cached_movies()
+    if cache_data:
+        return jsonify({
+            "movies": cache_data.get("movies", []),
+            "total": len(cache_data.get("movies", []))
+        })
+    return jsonify({"movies": [], "total": 0})
+
 @app.route("/api/search")
 def api_search():
     """Search movies with streaming results - page 1 returned immediately, rest fetched in background"""
@@ -1022,6 +1033,7 @@ def api_search():
         "pages_fetched": pages_fetched,
         "done": done,
         "streaming": True,
+        "combined": combined_results,
         "sources": {
             "cache": 0,
             "tmdb": total_results,
@@ -1078,7 +1090,8 @@ def api_search_progress():
             "total_pages": search["total_pages"],
             "total_results": len(search.get("combined", [])),
             "done": search["done"],
-            "cancelled": search["cancelled"]
+            "cancelled": search["cancelled"],
+            "combined": list(search.get("combined", []))
         })
 
 @app.route("/api/search/cancel", methods=["POST"])
