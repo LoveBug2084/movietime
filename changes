@@ -85,3 +85,6 @@ changes:
    - Auto-refresh now only updates movie cache, not display
    - Previously auto-refresh tried to recalculate N and showed wrong count
    - Display "N of T" stays until user performs new search
+
+- changed download directory:
+   - Changed from ./downloads to ./download

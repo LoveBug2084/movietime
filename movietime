@@ -49,7 +49,7 @@ def serve_qwebchannel():
         with open(qwebchannel_path, "r") as f:
             return f.read(), 200, {"Content-Type": "application/javascript"}
     return "/* qwebchannel.js not found */", 404
-DOWNLOAD_DIR = "./downloads"
+DOWNLOAD_DIR = "download"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 TMDB_API_KEY = "6ee1592d2aa6879294c1a8bf597095d1"
