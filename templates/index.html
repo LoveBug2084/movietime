@@ -622,38 +622,15 @@
         
         async function refreshCache() {
             const btn = document.querySelector('button[onclick="refreshCache()"]');
-            const originalText = btn.textContent;
             btn.disabled = true;
+            btn.textContent = 'Refreshing...';
             
-            // Start the refresh
-            fetch('/api/cache/refresh', { method: 'POST' });
+            // Force reload movies from the database
+            popularLoaded = false;
+            loadPopular(1);
             
-            // Poll for progress
-            const pollProgress = async () => {
-                try {
-                    const resp = await fetch('/api/cache/progress');
-                    const data = await resp.json();
-                    
-                    if (data.status === 'running') {
-                        btn.textContent = `Updating ${data.percent}%...`;
-                        setTimeout(pollProgress, 500);
-                    } else if (data.status === 'complete') {
-                        btn.textContent = originalText;
-                        btn.disabled = false;
-                        // Reload popular
-                        loadPopular(1);
-                    } else {
-                        // Idle or other - still running in background, check again
-                        setTimeout(pollProgress, 500);
-                    }
-                } catch (e) {
-                    btn.textContent = 'Error';
-                    btn.disabled = false;
-                }
-            };
-            
-            // Start polling after a brief delay to let fetch start
-            setTimeout(pollProgress, 500);
+            btn.textContent = 'Update Movies';
+            btn.disabled = false;
         }
         
         function sortAndFilterMovies(movies, query) {
@@ -702,7 +679,7 @@
             currentSearchQuery = '';
             
             if (!popularLoaded) {
-                const resp = await fetch('/api/popular/all');
+                const resp = await fetch('/api/movies/all');
                 const data = await resp.json();
                 displayMovies = data.movies || [];
                 popularLoaded = true;

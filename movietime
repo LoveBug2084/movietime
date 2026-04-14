@@ -61,12 +61,15 @@ BUILDING_FILE = "database/building.json"
 os.makedirs("database", exist_ok=True)
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
+# TMDB genre IDs
+GENRE_IDS = [28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37]
+
 # Cache progress tracking
 cache_progress = {"pages_fetched": 0, "total_pages": 0, "status": "idle"}
 
 # Sync state for incremental background sync
 SYNC_STATE_FILE = "database/sync_state.json"
-sync_state = {"current_page": 1, "last_updated": None, "status": "idle"}
+sync_state = {"current_page": 1, "genre_index": 0, "last_updated": None, "status": "idle", "phase": "popular"}
 sync_stop_event = threading.Event()
 sync_thread = None
 movie_ids = set()  # O(1) deduplication
@@ -139,7 +142,14 @@ def load_sync_state():
         return
     try:
         with open(SYNC_STATE_FILE, "r") as f:
-            sync_state = json.load(f)
+            loaded = json.load(f)
+            sync_state = {
+                "current_page": loaded.get("current_page", 1),
+                "genre_index": loaded.get("genre_index", 0),
+                "phase": loaded.get("phase", "popular"),
+                "last_updated": loaded.get("last_updated"),
+                "status": loaded.get("status", "idle")
+            }
     except Exception as e:
         print(f"Error loading sync state: {e}")
 
@@ -236,12 +246,20 @@ def background_sync():
     load_sync_state()
     
     current_page = sync_state.get("current_page", 1)
+    genre_index = sync_state.get("genre_index", 0)
+    phase = sync_state.get("phase", "popular")
+    
     sync_state["status"] = "running"
     save_sync_state()
     
     while not sync_stop_event.is_set():
         page = current_page
-        movies, total_pages = fetch_movie_page(page)
+        
+        if phase == "popular":
+            movies, total_pages = fetch_movie_page(page)
+        else:
+            genre_id = GENRE_IDS[genre_index]
+            movies, total_pages = fetch_movie_by_genre(genre_id, page)
         
         new_movies = []
         for m in movies:
@@ -260,15 +278,30 @@ def background_sync():
                 recover_from_corruption()
                 append_to_building(new_movies)
             
-            print(f"Page {page}: Added {len(new_movies)} new movies (total: {len(all_movies)})")
+            phase_label = f"Page {page}" if phase == "popular" else f"Page {page}, Genre {GENRE_IDS[genre_index]}"
+            print(f"{phase_label}: Added {len(new_movies)} new movies (total: {len(all_movies)})")
         
         sync_state["current_page"] = current_page
+        sync_state["genre_index"] = genre_index
+        sync_state["phase"] = phase
         sync_state["last_updated"] = time.time()
         save_sync_state()
         
-        current_page += 1
-        if current_page > 500:
-            current_page = 1
+        if phase == "popular":
+            current_page += 1
+            if current_page > 500:
+                phase = "genre"
+                current_page = 1
+                genre_index = 0
+                print("Switching to genre phase...")
+        else:
+            genre_index += 1
+            if genre_index >= len(GENRE_IDS):
+                genre_index = 0
+                current_page += 1
+                if current_page > 500:
+                    current_page = 1
+                    print("Completed full genre cycle, restarting...")
         
         if sync_stop_event.is_set():
             break
@@ -322,6 +355,27 @@ def fetch_movie_page(page):
         return movies, data.get("total_pages", 1)
     except Exception as e:
         print(f"Error fetching page {page}: {e}")
+        return [], 0
+
+def fetch_movie_by_genre(genre_id, page):
+    """Fetch a single page of movies from TMDb discover API by genre"""
+    url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&with_genres={genre_id}&language=en-US&page={page}"
+    try:
+        resp = requests.get(url, timeout=15)
+        data = resp.json()
+        movies = []
+        for m in data.get("results", []):
+            movies.append({
+                "id": m.get("id"),
+                "title": m.get("title"),
+                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
+                "overview": m.get("overview", ""),
+                "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
+                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None
+            })
+        return movies, data.get("total_pages", 1)
+    except Exception as e:
+        print(f"Error fetching page {page} for genre {genre_id}: {e}")
         return [], 0
 
 def fetch_and_cache_popular_movies():
@@ -1112,9 +1166,9 @@ def api_popular():
         "total_movies": 0
     })
 
-@app.route("/api/popular/all")
-def api_popular_all():
-    """Get ALL popular movies from cache - no pagination"""
+@app.route("/api/movies/all")
+def api_movies_all():
+    """Get ALL movies from cache - no pagination"""
     cache_data = load_cached_movies()
     if cache_data:
         return jsonify({

@@ -53,3 +53,13 @@ changes:
   - Added ensure_database_files() to handle first-run edge cases
   - Fixed validation to properly parse line-delimited JSON
   - Fixed load_cached_movies() to use line-delimited format parser
+
+- added genre-based discovery:
+  - Uses /discover/movie with with_genres parameter to fetch by genre
+  - 19 genre IDs defined (Action, Adventure, Animation, Comedy, etc.)
+  - Two-phase sync: Phase 1 = popular (500 pages), Phase 2 = interleaved genre search
+  - Interleaved: For each page 1-500, cycles through all 19 genres
+  - Sync state now tracks current_page, genre_index, and phase
+  - Saves state after each page for resume capability
+  - Reuses Update Movies button as manual refresh to reload movie list from database
+  - Renamed /api/popular/all to /api/movies/all to reflect it now returns all movies (popular + genre)
