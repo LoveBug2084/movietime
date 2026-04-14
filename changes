@@ -82,9 +82,27 @@ changes:
    - When no filter, displays just "T Movies"
 
 - fixed auto-refresh movie count bug:
-   - Auto-refresh now only updates movie cache, not display
-   - Previously auto-refresh tried to recalculate N and showed wrong count
-   - Display "N of T" stays until user performs new search
+   - Auto-refresh now updates total count and pages when no filter active
+   - When user is viewing all movies, count and pages update every 10 seconds
+   - When filter is active, display stays unchanged until new search
 
 - changed download directory:
    - Changed from ./downloads to ./download
+
+- fixed search pagination with genre filter:
+   - Search progress poll now applies genre filter to results
+   - Previously used unfiltered results causing wrong page count
+
+- fixed search with genre filter returning no results:
+   - Search results now include genre_ids field
+   - Backend search now includes genre_ids from TMDB
+   - Previously missing genre_ids caused genre filter to find 0 results
+
+- removed focus outlines:
+   - Removed orange outline on dropdowns and inputs
+   - Removed input focus box-shadow
+   - Added global outline: none
+
+- made movie description text bold:
+   - Description overlay text is now bold
+   - Made all text bold globally (dropdowns, buttons, links, etc)

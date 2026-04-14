@@ -748,6 +748,7 @@ def start_search_background(search_id, query, sort, category):
             "overview": m.get("overview", ""),
             "year": year_val,
             "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+            "genre_ids": m.get("genre_ids", []),
             "source": "tmdb"
         }
         with search["lock"]:
@@ -785,6 +786,7 @@ def start_search_background(search_id, query, sort, category):
                         "overview": m.get("overview", ""),
                         "year": year_val,
                         "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+                        "genre_ids": m.get("genre_ids", []),
                         "source": "tmdb"
                     }
                     with search["lock"]:

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MovieTime</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; font-weight: bold; }
         html, body {
             scrollbar-width: thin;
             scrollbar-color: #0099ff transparent;
@@ -61,7 +61,6 @@
         }
         .search-box input:focus {
             background: #333;
-            box-shadow: 0 0 0 2px #e50914;
         }
         .container {
             max-width: 1200px;
@@ -134,9 +133,13 @@
             border-radius: 5px;
             font-size: 14px;
             cursor: pointer;
+            outline: none;
         }
         .sort-bar select:hover {
             background: #333;
+        }
+        .sort-bar select:focus {
+            border-color: #666;
         }
         .grid {
             display: grid;
@@ -313,6 +316,7 @@
             background: rgba(0,0,0,0.95);
             padding: 10px;
             font-size: 14px;
+            font-weight: bold;
             color: #ccc;
             opacity: 0;
             transition: opacity 0.2s;
@@ -727,6 +731,17 @@
                 if (newMovies.length !== displayMovies.length) {
                     displayMovies = newMovies;
                     popularLoaded = true;
+                    
+                    // Update display if no filter active
+                    if (!currentGenre && !currentSearchQuery) {
+                        const totalMovies = displayMovies.length;
+                        document.getElementById('movie-count').textContent = totalMovies.toLocaleString() + ' Movies';
+                        
+                        // Update pagination
+                        const MOVIES_PER_PAGE = 100;
+                        currentTotalPages = Math.max(1, Math.ceil(totalMovies / MOVIES_PER_PAGE));
+                        updatePagination(currentTotalPages);
+                    }
                 }
             } catch (e) {
                 // Silent fail - don't disrupt user
@@ -1321,9 +1336,14 @@
                             searchResultsCache = [...data.combined];
                         }
                         
-                        // Calculate total pages from cache
+                        // Calculate total pages from filtered results
+                        let filteredCache = searchResultsCache;
+                        if (currentGenre) {
+                            const genreId = parseInt(currentGenre);
+                            filteredCache = searchResultsCache.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                        }
                         const MOVIES_PER_PAGE = 100;
-                        currentTotalPages = Math.max(1, Math.ceil(searchResultsCache.length / MOVIES_PER_PAGE));
+                        currentTotalPages = Math.max(1, Math.ceil(filteredCache.length / MOVIES_PER_PAGE));
                         
                         // Enable next button only if more pages have been fetched
                         const nextBtn = document.getElementById('next-btn');
