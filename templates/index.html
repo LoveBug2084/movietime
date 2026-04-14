@@ -843,7 +843,11 @@
             if (!popularLoaded) {
                 const resp = await fetch('/api/movies/all');
                 const data = await resp.json();
-                displayMovies = data.movies || [];
+                if (data.incremental) {
+                    displayMovies = data.movies || [];
+                } else {
+                    displayMovies = data.movies || [];
+                }
                 popularLoaded = true;
             }
             
@@ -896,17 +900,24 @@
             try {
                 const resp = await fetch('/api/movies/all');
                 const data = await resp.json();
-                const newMovies = data.movies || [];
-                if (newMovies.length !== displayMovies.length) {
-                    displayMovies = newMovies;
+                const totalMovies = data.total || 0;
+                
+                if (data.incremental && data.movies && data.movies.length > 0) {
+                    displayMovies = displayMovies.concat(data.movies);
                     popularLoaded = true;
                     
-                    // Update display if no filter active
                     if (!currentGenre && !currentSearchQuery && !currentRating && !currentYear) {
-                        const totalMovies = displayMovies.length;
                         document.getElementById('movie-count').textContent = totalMovies.toLocaleString() + ' Movies';
-                        
-                        // Update pagination
+                        const MOVIES_PER_PAGE = 100;
+                        currentTotalPages = Math.max(1, Math.ceil(totalMovies / MOVIES_PER_PAGE));
+                        updatePagination(currentTotalPages);
+                    }
+                } else if (!data.incremental && data.movies && data.movies.length > 0) {
+                    displayMovies = data.movies;
+                    popularLoaded = true;
+                    
+                    if (!currentGenre && !currentSearchQuery && !currentRating && !currentYear) {
+                        document.getElementById('movie-count').textContent = totalMovies.toLocaleString() + ' Movies';
                         const MOVIES_PER_PAGE = 100;
                         currentTotalPages = Math.max(1, Math.ceil(totalMovies / MOVIES_PER_PAGE));
                         updatePagination(currentTotalPages);

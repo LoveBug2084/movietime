@@ -169,3 +169,13 @@ changes:
 - fixed dropdown scrollbar colors:
    - Added custom scrollbar styling to select elements
    - Uses same #0099ff color scheme as page scrollbars
+
+- added incremental sync for movie updates:
+   - Backend now tracks movie_count in memory
+   - Backend compares current count vs last_movie_count from sync_state.json
+   - On poll: if count increased, returns only new movies (incremental: true)
+   - If count decreased, returns full list (full sync needed)
+   - If count same, returns empty movies array (no change)
+   - Frontend 10s interval now appends vs replaces based on incremental flag
+   - Significantly reduces bandwidth when no new movies
+   - Zero file reads when count unchanged

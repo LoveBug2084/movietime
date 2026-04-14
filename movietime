@@ -87,6 +87,7 @@ sync_state = {"current_page": 1, "genre_index": 0, "last_updated": None, "status
 sync_stop_event = threading.Event()
 sync_thread = None
 movie_ids = set()  # O(1) deduplication
+movie_count = 0  # Track total movie count for incremental sync
 
 # Rate limiting: 25 req/sec = 0.04 sec between requests
 SYNC_RATE_LIMIT = 0.04
@@ -117,7 +118,7 @@ def ensure_database_files():
 
 def load_movies_from_cache():
     """Load movies from cache file and populate movie_ids set"""
-    global movie_ids
+    global movie_ids, movie_count
     
     ensure_database_files()
     recover_from_corruption()
@@ -125,15 +126,18 @@ def load_movies_from_cache():
     active_movies = load_json_file(CACHE_FILE)
     if active_movies:
         movie_ids = {m["id"] for m in active_movies if "id" in m}
+        movie_count = len(active_movies)
         print(f"Loaded {len(active_movies)} movies from cache, {len(movie_ids)} unique IDs")
         return active_movies
     
     building_movies = load_json_file(BUILDING_FILE)
     if building_movies:
         movie_ids = {m["id"] for m in building_movies if "id" in m}
+        movie_count = len(building_movies)
         print(f"Loaded {len(building_movies)} movies from building, {len(movie_ids)} unique IDs")
         return building_movies
     
+    movie_count = 0
     return []
 
 def save_movies_atomic(movies):
@@ -162,7 +166,8 @@ def load_sync_state():
                 "genre_index": loaded.get("genre_index", 0),
                 "phase": loaded.get("phase", "popular"),
                 "last_updated": loaded.get("last_updated"),
-                "status": loaded.get("status", "idle")
+                "status": loaded.get("status", "idle"),
+                "last_movie_count": loaded.get("last_movie_count", 0)
             }
     except Exception as e:
         print(f"Error loading sync state: {e}")
@@ -294,6 +299,9 @@ def background_sync():
             
             phase_label = f"Page {page}" if phase == "popular" else f"Page {page}, Genre {GENRE_IDS[genre_index]}"
             print(f"{phase_label}: Added {len(new_movies)} new movies (total: {len(all_movies)})")
+            
+            global movie_count
+            movie_count += len(new_movies)
         
         sync_state["current_page"] = current_page
         sync_state["genre_index"] = genre_index
@@ -1197,14 +1205,41 @@ def api_popular():
 
 @app.route("/api/movies/all")
 def api_movies_all():
-    """Get ALL movies from cache - no pagination"""
+    """Get movies from cache - incremental on poll, full on first load"""
+    global sync_state
+    
     cache_data = load_cached_movies()
-    if cache_data:
+    if not cache_data:
+        return jsonify({"movies": [], "total": 0})
+    
+    current_movies = cache_data.get("movies", [])
+    current_count = len(current_movies)
+    
+    last_count = sync_state.get("last_movie_count", 0)
+    
+    if current_count > last_count:
+        new_movies = current_movies[last_count:]
+        sync_state["last_movie_count"] = current_count
+        save_sync_state()
         return jsonify({
-            "movies": cache_data.get("movies", []),
-            "total": len(cache_data.get("movies", []))
+            "movies": new_movies,
+            "incremental": True,
+            "total": current_count
         })
-    return jsonify({"movies": [], "total": 0})
+    elif current_count < last_count:
+        sync_state["last_movie_count"] = current_count
+        save_sync_state()
+        return jsonify({
+            "movies": current_movies,
+            "incremental": False,
+            "total": current_count
+        })
+    else:
+        return jsonify({
+            "movies": [],
+            "incremental": False,
+            "total": current_count
+        })
 
 @app.route("/api/search")
 def api_search():

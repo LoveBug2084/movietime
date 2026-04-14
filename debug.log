@@ -402,3 +402,165 @@
 2026-04-14T07:13:08.080008 [DEBUG playable] downloaded: 330743808, min: 5242880
 2026-04-14T07:13:08.090381 [DEBUG playable] start_piece: None, header_count: 10
 2026-04-14T07:13:08.095696 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:52:47.691543 [DEBUG magnet] waiting for metadata: The Super Mario Bros. Movie (2023) [1080p] [WEBRip
+2026-04-14T10:52:49.697688 [DEBUG playable] downloaded: 0, min: 5242880
+2026-04-14T10:52:49.697753 [DEBUG playable] insufficient data
+2026-04-14T10:52:49.702099 [DEBUG magnet] metadata received, applying priority: The Super Mario Bros. Movie (2023) [1080p] [WEBRip
+2026-04-14T10:52:51.699270 [DEBUG playable] downloaded: 1081344, min: 5242880
+2026-04-14T10:52:51.699363 [DEBUG playable] insufficient data
+2026-04-14T10:52:53.936403 [DEBUG playable] downloaded: 5259264, min: 5242880
+2026-04-14T10:52:53.946685 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:52:53.962020 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:52:55.698380 [DEBUG playable] downloaded: 9388032, min: 5242880
+2026-04-14T10:52:55.698444 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:52:55.698475 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:52:57.951314 [DEBUG playable] downloaded: 19070976, min: 5242880
+2026-04-14T10:52:57.971907 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:52:57.997824 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:00.027048 [DEBUG playable] downloaded: 27099136, min: 5242880
+2026-04-14T10:53:00.047563 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:00.084906 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:01.935862 [DEBUG playable] downloaded: 34914304, min: 5242880
+2026-04-14T10:53:01.956211 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:01.981604 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:03.923620 [DEBUG playable] downloaded: 42958848, min: 5242880
+2026-04-14T10:53:03.923673 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:03.923703 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:05.800715 [DEBUG playable] downloaded: 53608448, min: 5242880
+2026-04-14T10:53:05.800781 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:05.800815 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:07.697527 [DEBUG playable] downloaded: 62095360, min: 5242880
+2026-04-14T10:53:07.697581 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:07.697610 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:09.698027 [DEBUG playable] downloaded: 72941568, min: 5242880
+2026-04-14T10:53:09.698084 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:09.698124 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:11.697493 [DEBUG playable] downloaded: 86949888, min: 5242880
+2026-04-14T10:53:11.697557 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:11.697587 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:13.770446 [DEBUG playable] downloaded: 100466688, min: 5242880
+2026-04-14T10:53:13.770511 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:13.770544 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:16.035914 [DEBUG playable] downloaded: 116539392, min: 5242880
+2026-04-14T10:53:16.036083 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:16.036778 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:17.921344 [DEBUG playable] downloaded: 128991232, min: 5242880
+2026-04-14T10:53:17.941863 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:17.967566 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:19.697885 [DEBUG playable] downloaded: 141000704, min: 5242880
+2026-04-14T10:53:19.697944 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:19.697989 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:21.721219 [DEBUG playable] downloaded: 156909568, min: 5242880
+2026-04-14T10:53:21.721292 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:21.721327 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:23.697621 [DEBUG playable] downloaded: 168886272, min: 5242880
+2026-04-14T10:53:23.697681 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:23.697715 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:25.698302 [DEBUG playable] downloaded: 183910400, min: 5242880
+2026-04-14T10:53:25.698364 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:25.698408 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:27.834313 [DEBUG playable] downloaded: 199933952, min: 5242880
+2026-04-14T10:53:27.834393 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:27.834442 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:29.701711 [DEBUG playable] downloaded: 212795392, min: 5242880
+2026-04-14T10:53:29.701774 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:29.701858 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:31.773396 [DEBUG playable] downloaded: 225296384, min: 5242880
+2026-04-14T10:53:31.773460 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:31.773492 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:33.711242 [DEBUG playable] downloaded: 238239744, min: 5242880
+2026-04-14T10:53:33.711307 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:33.711340 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:35.745490 [DEBUG playable] downloaded: 253345792, min: 5242880
+2026-04-14T10:53:35.745556 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:35.745592 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:37.779714 [DEBUG playable] downloaded: 266321920, min: 5242880
+2026-04-14T10:53:37.779775 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:37.779806 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:39.791330 [DEBUG playable] downloaded: 276660224, min: 5242880
+2026-04-14T10:53:39.791395 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:39.791427 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:41.698969 [DEBUG playable] downloaded: 286097408, min: 5242880
+2026-04-14T10:53:41.699045 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:41.699099 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:43.807566 [DEBUG playable] downloaded: 299057152, min: 5242880
+2026-04-14T10:53:43.807625 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:43.807657 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:45.864558 [DEBUG playable] downloaded: 306561024, min: 5242880
+2026-04-14T10:53:45.864652 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:45.864699 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:47.718944 [DEBUG playable] downloaded: 316833792, min: 5242880
+2026-04-14T10:53:47.719000 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:47.719029 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:49.881974 [DEBUG playable] downloaded: 325484544, min: 5242880
+2026-04-14T10:53:49.882035 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:49.882065 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:51.749108 [DEBUG playable] downloaded: 338116608, min: 5242880
+2026-04-14T10:53:51.749198 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:51.749232 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:53.697802 [DEBUG playable] downloaded: 345391104, min: 5242880
+2026-04-14T10:53:53.697901 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:53.697933 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:55.697670 [DEBUG playable] downloaded: 351010816, min: 5242880
+2026-04-14T10:53:55.697738 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:55.697769 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:57.810476 [DEBUG playable] downloaded: 364036096, min: 5242880
+2026-04-14T10:53:57.810535 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:57.810568 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:53:59.945754 [DEBUG playable] downloaded: 380752379, min: 5242880
+2026-04-14T10:53:59.961103 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:53:59.966257 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:01.980361 [DEBUG playable] downloaded: 397513211, min: 5242880
+2026-04-14T10:54:01.995804 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:02.011196 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:04.037726 [DEBUG playable] downloaded: 414863867, min: 5242880
+2026-04-14T10:54:04.063535 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:04.079325 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:05.931264 [DEBUG playable] downloaded: 428446203, min: 5242880
+2026-04-14T10:54:05.946790 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:05.972522 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:07.697606 [DEBUG playable] downloaded: 443961851, min: 5242880
+2026-04-14T10:54:07.697684 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:07.697716 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:09.698081 [DEBUG playable] downloaded: 461181435, min: 5242880
+2026-04-14T10:54:09.698154 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:09.698208 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:11.890274 [DEBUG playable] downloaded: 479482363, min: 5242880
+2026-04-14T10:54:11.890337 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:11.890378 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:13.945393 [DEBUG playable] downloaded: 496669179, min: 5242880
+2026-04-14T10:54:13.970970 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:13.991479 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:15.729003 [DEBUG playable] downloaded: 507384315, min: 5242880
+2026-04-14T10:54:15.729064 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:15.729097 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:17.744590 [DEBUG playable] downloaded: 524177915, min: 5242880
+2026-04-14T10:54:17.744649 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:17.744678 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:19.697279 [DEBUG playable] downloaded: 530469371, min: 5242880
+2026-04-14T10:54:19.697360 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:19.697394 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:21.697212 [DEBUG playable] downloaded: 539562491, min: 5242880
+2026-04-14T10:54:21.697274 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:21.697317 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:23.697300 [DEBUG playable] downloaded: 554947067, min: 5242880
+2026-04-14T10:54:23.697364 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:23.697395 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:25.705139 [DEBUG playable] downloaded: 569905659, min: 5242880
+2026-04-14T10:54:25.705210 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:25.705247 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:27.914759 [DEBUG playable] downloaded: 585929211, min: 5242880
+2026-04-14T10:54:27.914875 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:27.914928 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:29.697705 [DEBUG playable] downloaded: 598053371, min: 5242880
+2026-04-14T10:54:29.697778 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:29.697812 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:31.697398 [DEBUG playable] downloaded: 614797819, min: 5242880
+2026-04-14T10:54:31.697454 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:31.697486 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:34.116465 [DEBUG playable] downloaded: 632836603, min: 5242880
+2026-04-14T10:54:34.127099 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:34.127484 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T10:54:35.698125 [DEBUG playable] downloaded: 643273211, min: 5242880
+2026-04-14T10:54:35.698212 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T10:54:35.698247 [DEBUG playable] waiting for metadata - NOT playable
