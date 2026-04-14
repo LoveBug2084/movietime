@@ -57,11 +57,227 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
 
 # Cache file for popular movies
 CACHE_FILE = "database/active.json"
+BUILDING_FILE = "database/building.json"
 os.makedirs("database", exist_ok=True)
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
 # Cache progress tracking
 cache_progress = {"pages_fetched": 0, "total_pages": 0, "status": "idle"}
+
+# Sync state for incremental background sync
+SYNC_STATE_FILE = "database/sync_state.json"
+sync_state = {"current_page": 1, "last_updated": None, "status": "idle"}
+sync_stop_event = threading.Event()
+sync_thread = None
+movie_ids = set()  # O(1) deduplication
+
+# Rate limiting: 25 req/sec = 0.04 sec between requests
+SYNC_RATE_LIMIT = 0.04
+
+def ensure_database_files():
+    """Ensure both active.json and building.json exist"""
+    active_exists = os.path.exists(CACHE_FILE)
+    building_exists = os.path.exists(BUILDING_FILE)
+    
+    if not active_exists and not building_exists:
+        with open(CACHE_FILE, "w") as f:
+            pass
+        with open(BUILDING_FILE, "w") as f:
+            pass
+        print("Created fresh empty database files")
+        
+    elif not active_exists:
+        with open(BUILDING_FILE, "r") as src:
+            with open(CACHE_FILE, "w") as dst:
+                dst.write(src.read())
+        print("Copied building.json to active.json")
+        
+    elif not building_exists:
+        with open(CACHE_FILE, "r") as src:
+            with open(BUILDING_FILE, "w") as dst:
+                dst.write(src.read())
+        print("Copied active.json to building.json")
+
+def load_movies_from_cache():
+    """Load movies from cache file and populate movie_ids set"""
+    global movie_ids
+    
+    ensure_database_files()
+    recover_from_corruption()
+    
+    active_movies = load_json_file(CACHE_FILE)
+    if active_movies:
+        movie_ids = {m["id"] for m in active_movies if "id" in m}
+        print(f"Loaded {len(active_movies)} movies from cache, {len(movie_ids)} unique IDs")
+        return active_movies
+    
+    building_movies = load_json_file(BUILDING_FILE)
+    if building_movies:
+        movie_ids = {m["id"] for m in building_movies if "id" in m}
+        print(f"Loaded {len(building_movies)} movies from building, {len(movie_ids)} unique IDs")
+        return building_movies
+    
+    return []
+
+def save_movies_atomic(movies):
+    """Atomically write movies to cache file as line-delimited JSON"""
+    temp_file = CACHE_FILE + ".tmp"
+    try:
+        with open(temp_file, "w") as f:
+            for m in movies:
+                f.write(json.dumps(m) + "\n")
+        os.replace(temp_file, CACHE_FILE)
+    except Exception as e:
+        print(f"Error saving cache: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+def load_sync_state():
+    """Load sync state from file"""
+    global sync_state
+    if not os.path.exists(SYNC_STATE_FILE):
+        return
+    try:
+        with open(SYNC_STATE_FILE, "r") as f:
+            sync_state = json.load(f)
+    except Exception as e:
+        print(f"Error loading sync state: {e}")
+
+def save_sync_state():
+    """Save sync state to file"""
+    try:
+        with open(SYNC_STATE_FILE, "w") as f:
+            json.dump(sync_state, f)
+    except Exception as e:
+        print(f"Error saving sync state: {e}")
+
+def append_to_building(new_movies):
+    """Append new movies to building.json as line-delimited JSON"""
+    try:
+        with open(BUILDING_FILE, "a") as f:
+            for movie in new_movies:
+                f.write(json.dumps(movie) + "\n")
+    except Exception as e:
+        print(f"Error appending to building: {e}")
+
+def validate_json_file(filepath):
+    """Check if a file contains valid JSON (line-delimited)"""
+    if not os.path.exists(filepath):
+        return False
+    try:
+        with open(filepath, "r") as f:
+            content = f.read()
+            if not content:
+                return False
+            for line in content.split('\n'):
+                line = line.strip()
+                if line:
+                    json.loads(line)
+            return True
+    except Exception as e:
+        print(f"Validation failed for {filepath}: {e}")
+        return False
+
+def load_json_file(filepath):
+    """Load movies from line-delimited JSON"""
+    if not os.path.exists(filepath):
+        return []
+    movies = []
+    try:
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    movies.append(json.loads(line))
+        return movies
+    except Exception as e:
+        print(f"Error loading {filepath}: {e}")
+        return []
+
+def atomic_swap_and_sync():
+    """Atomic swap: building → active, active → building, then append new movies to building"""
+    temp_active = CACHE_FILE + ".tmp"
+    try:
+        os.replace(CACHE_FILE, temp_active)
+        os.replace(BUILDING_FILE, CACHE_FILE)
+        os.replace(temp_active, BUILDING_FILE)
+        print(f"Swapped: active ← building, building ← old active")
+    except Exception as e:
+        print(f"Swap failed: {e}")
+        if os.path.exists(temp_active):
+            os.replace(temp_active, CACHE_FILE)
+
+def recover_from_corruption():
+    """If one file is corrupted, copy from the other"""
+    active_valid = validate_json_file(CACHE_FILE)
+    building_valid = validate_json_file(BUILDING_FILE)
+    
+    if active_valid and not building_valid:
+        movies = load_json_file(CACHE_FILE)
+        with open(BUILDING_FILE, "w") as f:
+            for m in movies:
+                f.write(json.dumps(m) + "\n")
+        print(f"Recovered building.json from active.json")
+    elif not active_valid and building_valid:
+        movies = load_json_file(BUILDING_FILE)
+        with open(CACHE_FILE, "w") as f:
+            for m in movies:
+                f.write(json.dumps(m) + "\n")
+        print(f"Recovered active.json from building.json")
+    elif not active_valid and not building_valid:
+        print("WARNING: Both files corrupted!")
+
+def background_sync():
+    """Background thread that incrementally syncs movies from TMDB"""
+    global sync_state, movie_ids
+    print("Starting background movie sync...")
+    
+    all_movies = load_movies_from_cache()
+    load_sync_state()
+    
+    current_page = sync_state.get("current_page", 1)
+    sync_state["status"] = "running"
+    save_sync_state()
+    
+    while not sync_stop_event.is_set():
+        page = current_page
+        movies, total_pages = fetch_movie_page(page)
+        
+        new_movies = []
+        for m in movies:
+            if m["id"] not in movie_ids:
+                movie_ids.add(m["id"])
+                new_movies.append(m)
+        
+        if new_movies:
+            all_movies.extend(new_movies)
+            append_to_building(new_movies)
+            
+            if validate_json_file(BUILDING_FILE):
+                atomic_swap_and_sync()
+                append_to_building(new_movies)
+            else:
+                recover_from_corruption()
+                append_to_building(new_movies)
+            
+            print(f"Page {page}: Added {len(new_movies)} new movies (total: {len(all_movies)})")
+        
+        sync_state["current_page"] = current_page
+        sync_state["last_updated"] = time.time()
+        save_sync_state()
+        
+        current_page += 1
+        if current_page > 500:
+            current_page = 1
+        
+        if sync_stop_event.is_set():
+            break
+        
+        time.sleep(SYNC_RATE_LIMIT)
+    
+    sync_state["status"] = "stopped"
+    save_sync_state()
+    print("Background sync stopped.")
 
 # Thread pool for parallel API calls
 executor = ThreadPoolExecutor(max_workers=10)
@@ -164,16 +380,16 @@ def fetch_and_cache_popular_movies():
     return cache_data
 
 def load_cached_movies():
-    """Load movies from cache file if it exists and is fresh"""
+    """Load movies from cache file"""
     if not os.path.exists(CACHE_FILE):
         return None
 
     try:
-        with open(CACHE_FILE, "r") as f:
-            cache_data = json.load(f)
-
-        print(f"Loaded {len(cache_data.get('movies', []))} movies from cache")
-        return cache_data
+        movies = load_json_file(CACHE_FILE)
+        if movies:
+            print(f"Loaded {len(movies)} movies from cache")
+            return {"movies": movies}
+        return None
     except Exception as e:
         print(f"Error loading cache: {e}")
         return None
@@ -888,21 +1104,12 @@ def api_popular():
             "total_movies": total_movies
         })
 
-    cache_data = fetch_and_cache_popular_movies()
-    all_movies = cache_data.get("movies", [])
-    total_movies = len(all_movies)
-    total_pages = (total_movies + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
-
-    start_idx = (page - 1) * MOVIES_PER_PAGE
-    end_idx = start_idx + MOVIES_PER_PAGE
-    page_movies = all_movies[start_idx:end_idx]
-
     return jsonify({
-        "movies": page_movies,
-        "page": page,
-        "total_pages": total_pages,
+        "movies": [],
+        "page": 1,
+        "total_pages": 0,
         "cached": False,
-        "total_movies": total_movies
+        "total_movies": 0
     })
 
 @app.route("/api/popular/all")
@@ -1130,9 +1337,12 @@ def api_start():
 
 @app.route("/api/cache/refresh", methods=["POST"])
 def api_cache_refresh():
-    """Force refresh the movie cache"""
-    cache_data = fetch_and_cache_popular_movies()
-    return jsonify({"status": "refreshed", "total": len(cache_data.get("movies", []))})
+    """Background sync runs continuously - this endpoint returns sync status"""
+    return jsonify({
+        "status": "sync_continuous",
+        "message": "Movie sync runs automatically in background",
+        "sync_state": sync_state
+    })
 
 @app.route("/api/cache/progress")
 def api_cache_progress():
@@ -1148,6 +1358,11 @@ def api_cache_progress():
         "pages_fetched": cache_progress["pages_fetched"],
         "total_pages": cache_progress["total_pages"]
     })
+
+@app.route("/api/sync/status")
+def api_sync_status():
+    """Get background sync status"""
+    return jsonify(sync_state)
 
 @app.route("/api/status")
 def api_status():
@@ -1363,7 +1578,13 @@ def run_flask():
 
 def cleanup_on_exit():
     """Stop libtorrent session, mpv player, and restore terminal"""
-    global current_download
+    global current_download, sync_stop_event, sync_thread
+    
+    sync_stop_event.set()
+    if sync_thread and sync_thread.is_alive():
+        sync_thread.join(timeout=3)
+        print("Background sync thread stopped.")
+    
     with mpv_lock:
         if mpv_player["process"]:
             try:
@@ -1393,9 +1614,13 @@ def main():
     """Entry point for desktop app"""
     import sys
     import signal
+    global sync_thread
 
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+
+    sync_thread = threading.Thread(target=background_sync, daemon=True)
+    sync_thread.start()
 
     time.sleep(1)
 

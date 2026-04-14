@@ -27,3 +27,29 @@ changes:
 - added dark scrollbars to match the theme
 
 - removed 24 hour cache expiry, cache now never expires
+
+- added continuous background movie sync:
+  - On app start, background thread continuously fetches TMDB pages one at a time
+  - New movies are added incrementally to avoid duplicates (O(1) lookup via set)
+  - Saves sync state (current_page) to database/sync_state.json for resume on restart
+  - After page 500, loops back to page 1
+  - Rate limited to 25 req/sec (0.04 sec between requests)
+  - Uses atomic file writes (write to temp, then rename) for safe shutdown
+  - Graceful shutdown: sets stop event on exit, waits up to 3 seconds for thread to finish
+  - Added /api/sync/status endpoint to monitor sync progress
+  - Removed initial bulk fetch - now handled by continuous background sync
+  - Updated /api/cache/refresh to indicate continuous sync is running
+  - Writes to disk every 100 pages to reduce I/O overhead
+
+- replaced single-file approach with dual-file append-only system:
+  - active.json: main movie database (line-delimited JSON)
+  - building.json: append-only file for new movies (line-delimited JSON)
+  - On each page: append new movies to building.json, validate, then atomic swap
+  - After swap: building contains old active data + new movies (both in sync)
+  - Only writes ~20 new movies per page instead of rewriting entire dataset
+  - O(1) I/O regardless of total database size
+  - Added recovery: if one file corrupted, copy from the other
+  - Both files now use consistent line-delimited format
+  - Added ensure_database_files() to handle first-run edge cases
+  - Fixed validation to properly parse line-delimited JSON
+  - Fixed load_cached_movies() to use line-delimited format parser
