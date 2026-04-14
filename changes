@@ -98,6 +98,11 @@ changes:
    - Backend search now includes genre_ids from TMDB
    - Previously missing genre_ids caused genre filter to find 0 results
 
+- fixed apibay results filtered out by genre:
+   - Genre filter now shows results without genre_ids (apibay results)
+   - Changed filter to: !m.genre_ids || m.genre_ids.includes(genreId)
+   - Previously: m.genre_ids && m.genre_ids.includes(genreId) removed all non-TMDB results
+
 - removed focus outlines:
    - Removed orange outline on dropdowns and inputs
    - Removed input focus box-shadow
@@ -106,3 +111,7 @@ changes:
 - made movie description text bold:
    - Description overlay text is now bold
    - Made all text bold globally (dropdowns, buttons, links, etc)
+
+- fixed torrent hover not fetching:
+   - Added missing currentCategory variable
+   - Was undefined, breaking torrent API calls

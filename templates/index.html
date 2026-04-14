@@ -590,6 +590,7 @@
         const sortSelect = document.getElementById('sort-select');
         const genreSelect = document.getElementById('genre-select');
         let currentGenre = '';
+        let currentCategory = 'all';
         let activeCard = null;
         
         // Set up QWebChannel to get pyqt object
@@ -642,7 +643,7 @@
             // Filter by genre if selected
             if (currentGenre) {
                 const genreId = parseInt(currentGenre);
-                result = result.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                result = result.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
             }
             
             // Filter based on query and sort mode
@@ -698,7 +699,7 @@
             let filteredMovies = displayMovies;
             if (currentGenre) {
                 const genreId = parseInt(currentGenre);
-                filteredMovies = displayMovies.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                filteredMovies = displayMovies.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
             }
             
             // Update movie count display
@@ -1340,7 +1341,7 @@
                         let filteredCache = searchResultsCache;
                         if (currentGenre) {
                             const genreId = parseInt(currentGenre);
-                            filteredCache = searchResultsCache.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                            filteredCache = searchResultsCache.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
                         }
                         const MOVIES_PER_PAGE = 100;
                         currentTotalPages = Math.max(1, Math.ceil(filteredCache.length / MOVIES_PER_PAGE));
@@ -1395,7 +1396,7 @@
                         let filteredResults = results;
                         if (currentGenre) {
                             const genreId = parseInt(currentGenre);
-                            filteredResults = results.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                            filteredResults = results.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
                         }
                         
                         const MOVIES_PER_PAGE = 100;
@@ -1431,7 +1432,7 @@
                     let filteredResults = searchResultsCache;
                     if (currentGenre) {
                         const genreId = parseInt(currentGenre);
-                        filteredResults = searchResultsCache.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                        filteredResults = searchResultsCache.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
                     }
                     
                     const MOVIES_PER_PAGE = 100;
