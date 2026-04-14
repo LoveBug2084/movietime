@@ -128,3 +128,44 @@ changes:
    - Backend /api/download/playable logs all check values
    - Debug log stored in debug.log file
    - Frontend sends debug to backend /api/debug
+
+- added rating filter:
+   - Replaced sort dropdown with rating dropdown
+   - Options: All, 1+ through 9+
+   - Filters results by minimum rating
+
+- fixed rating filter display reset on auto-refresh:
+   - Auto-refresh now preserves "N of T Movies" format when rating filter active
+   - Previously only checked genre and search filters, ignoring rating
+
+- reversed rating menu order:
+   - Now shows All at top, then 9+ down to 1+ (highest first)
+   - Removed redundant 0+ option (same as All)
+
+- added "None" option to rating filter:
+   - Shows only movies without a rating
+   - Handles rating values of null, "None", 0, or empty string in database
+
+- fixed rating filter only filtering current page:
+   - handleRatingChange() now filters from full displayMovies array
+   - Previously filtered from currentMovies (just page 1's 100 movies)
+   - Fixed pagination and display to work correctly with filter
+
+- expanded header and movie grid to full window width:
+   - Removed max-width: 1200px constraint from header
+   - Movie grid now uses full window width
+   - Cards automatically adjust to fit more per row based on screen size
+
+- swapped rating and genre dropdown positions:
+   - Rating dropdown now appears before Genre dropdown
+   - Maintains same filter functionality
+
+- added year filter dropdown:
+   - New dropdown between Rating and Genre
+   - Options: All, then 2026 down to 1901
+   - Filters movies by exact release year
+   - Integrated into filter system and auto-refresh
+
+- fixed dropdown scrollbar colors:
+   - Added custom scrollbar styling to select elements
+   - Uses same #0099ff color scheme as page scrollbars
