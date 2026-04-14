@@ -512,13 +512,28 @@
         <div class="search-box">
             <input type="text" id="search" placeholder="Search movies..." autocomplete="off">
             <div class="sort-bar">
-                <label for="category-select">Type:</label>
-                <select id="category-select" onchange="handleCategoryChange()">
-                    <option value="all">ALL</option>
-                    <option value="movies">MOVIES</option>
-                    <option value="tv">TV SHOWS</option>
-                    <option value="music">MUSIC</option>
-                    <option value="adult">ADULT</option>
+                <label for="genre-select">Genre:</label>
+                <select id="genre-select" onchange="handleGenreChange()">
+                    <option value="">All</option>
+                    <option value="28">Action</option>
+                    <option value="12">Adventure</option>
+                    <option value="16">Animation</option>
+                    <option value="35">Comedy</option>
+                    <option value="80">Crime</option>
+                    <option value="99">Documentary</option>
+                    <option value="18">Drama</option>
+                    <option value="10751">Family</option>
+                    <option value="14">Fantasy</option>
+                    <option value="36">History</option>
+                    <option value="27">Horror</option>
+                    <option value="10402">Music</option>
+                    <option value="9648">Mystery</option>
+                    <option value="10749">Romance</option>
+                    <option value="878">Science Fiction</option>
+                    <option value="10770">TV Movie</option>
+                    <option value="53">Thriller</option>
+                    <option value="10752">War</option>
+                    <option value="37">Western</option>
                 </select>
             </div>
             <div class="sort-bar">
@@ -569,8 +584,8 @@
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const sortSelect = document.getElementById('sort-select');
-        const categorySelect = document.getElementById('category-select');
-        let currentCategory = 'all';
+        const genreSelect = document.getElementById('genre-select');
+        let currentGenre = '';
         let activeCard = null;
         
         // Set up QWebChannel to get pyqt object
@@ -586,22 +601,15 @@
             if (folderBtn) folderBtn.style.display = 'flex';
         }
         
-        function handleCategoryChange() {
-            currentCategory = categorySelect.value;
+        function handleGenreChange() {
+            currentGenre = genreSelect.value;
             const query = searchInput.value.trim();
             
-            if (!query) {
-                // No query - show message for non-all categories, popular for 'all'
-                if (currentCategory === 'all') {
-                    loadPopular(1);
-                } else {
-                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">Type to search for ' + currentCategory + '</div>';
-                }
-                return;
+            if (query) {
+                performSearch(query);
+            } else {
+                loadPopular(1);
             }
-            
-            // Re-run search with new category
-            performSearch(query);
         }
         
         function handleSortChange() {
@@ -615,11 +623,23 @@
                 // Sort current movies without filtering
                 const sorted = sortAndFilterMovies(currentMovies, '');
                 renderMovies(sorted, currentSource);
+                
+                // Update movie count
+                const totalMovies = displayMovies.length;
+                if (currentGenre || currentSearchQuery) {
+                    document.getElementById('movie-count').textContent = sorted.length.toLocaleString() + ' of ' + totalMovies.toLocaleString() + ' Movies';
+                }
             }
         }
         
         function sortAndFilterMovies(movies, query) {
             let result = [...movies];
+            
+            // Filter by genre if selected
+            if (currentGenre) {
+                const genreId = parseInt(currentGenre);
+                result = result.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+            }
             
             // Filter based on query and sort mode
             if (query) {
@@ -670,16 +690,28 @@
                 popularLoaded = true;
             }
             
+            // Apply genre filter if selected
+            let filteredMovies = displayMovies;
+            if (currentGenre) {
+                const genreId = parseInt(currentGenre);
+                filteredMovies = displayMovies.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+            }
+            
             // Update movie count display
-            document.getElementById('movie-count').textContent = displayMovies.length.toLocaleString() + ' Movies';
+            const totalMovies = displayMovies.length;
+            if (currentGenre || currentSearchQuery) {
+                document.getElementById('movie-count').textContent = filteredMovies.length.toLocaleString() + ' of ' + totalMovies.toLocaleString() + ' Movies';
+            } else {
+                document.getElementById('movie-count').textContent = totalMovies.toLocaleString() + ' Movies';
+            }
             
             const MOVIES_PER_PAGE = 100;
-            currentTotalPages = Math.max(1, Math.ceil(displayMovies.length / MOVIES_PER_PAGE));
+            currentTotalPages = Math.max(1, Math.ceil(filteredMovies.length / MOVIES_PER_PAGE));
             currentPage = Math.min(page, currentTotalPages);
             
             const startIdx = (currentPage - 1) * MOVIES_PER_PAGE;
             const endIdx = startIdx + MOVIES_PER_PAGE;
-            const pageMovies = displayMovies.slice(startIdx, endIdx);
+            const pageMovies = filteredMovies.slice(startIdx, endIdx);
             
             currentMovies = pageMovies;
             renderMovies(pageMovies, 'popular');
@@ -695,7 +727,6 @@
                 if (newMovies.length !== displayMovies.length) {
                     displayMovies = newMovies;
                     popularLoaded = true;
-                    await loadPopular(currentPage);
                 }
             } catch (e) {
                 // Silent fail - don't disrupt user
@@ -1334,24 +1365,36 @@
             
             // If in YEAR mode and query is a 4-digit year, search API by year
             if (currentSort === 'year' && /^\d{4}$/.test(query)) {
-                fetch(`/api/search?q=&year=${encodeURIComponent(query)}&sort=${currentSort}&category=${currentCategory}&page=${page}`)
+                fetch(`/api/search?q=&year=${encodeURIComponent(query)}&sort=${currentSort}&page=${page}`)
                     .then(resp => resp.json())
                     .then(data => {
                         const results = data.results || data;
                         searchResultsCache = results;
+                        
+                        // Apply genre filter if selected
+                        let filteredResults = results;
+                        if (currentGenre) {
+                            const genreId = parseInt(currentGenre);
+                            filteredResults = results.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                        }
+                        
                         const MOVIES_PER_PAGE = 100;
-                        currentTotalPages = Math.max(1, Math.ceil(results.length / MOVIES_PER_PAGE));
+                        currentTotalPages = Math.max(1, Math.ceil(filteredResults.length / MOVIES_PER_PAGE));
                         currentPage = 1;
-                        const pageResults = results.slice(0, MOVIES_PER_PAGE);
+                        const pageResults = filteredResults.slice(0, MOVIES_PER_PAGE);
                         renderMovies(pageResults, 'search');
                         updatePagination(currentTotalPages);
+                        
+                        // Update movie count
+                        const totalMovies = displayMovies.length;
+                        document.getElementById('movie-count').textContent = filteredResults.length.toLocaleString() + ' of ' + totalMovies.toLocaleString() + ' Movies';
                     })
                     .catch(err => console.error('Search error:', err));
                 return;
             }
             
-            // For all other modes, use backend search with sort and category parameters
-            fetch(`/api/search?q=${encodeURIComponent(query)}&sort=${currentSort}&category=${currentCategory}&page=${page}`)
+            // For all other modes, use backend search with sort parameters
+            fetch(`/api/search?q=${encodeURIComponent(query)}&sort=${currentSort}&page=${page}`)
                 .then(resp => resp.json())
                 .then(data => {
                     const results = data.results || data;
@@ -1364,13 +1407,24 @@
                         searchResultsCache = results;
                     }
                     
+                    // Apply genre filter if selected
+                    let filteredResults = searchResultsCache;
+                    if (currentGenre) {
+                        const genreId = parseInt(currentGenre);
+                        filteredResults = searchResultsCache.filter(m => m.genre_ids && m.genre_ids.includes(genreId));
+                    }
+                    
                     const MOVIES_PER_PAGE = 100;
-                    currentTotalPages = Math.max(1, Math.ceil(searchResultsCache.length / MOVIES_PER_PAGE));
+                    currentTotalPages = Math.max(1, Math.ceil(filteredResults.length / MOVIES_PER_PAGE));
                     currentPage = 1;
                     
-                    const pageResults = searchResultsCache.slice(0, MOVIES_PER_PAGE);
+                    const pageResults = filteredResults.slice(0, MOVIES_PER_PAGE);
                     renderMovies(pageResults, 'search');
                     updatePagination(currentTotalPages);
+                    
+                    // Update movie count
+                    const totalMovies = displayMovies.length;
+                    document.getElementById('movie-count').textContent = filteredResults.length.toLocaleString() + ' of ' + totalMovies.toLocaleString() + ' Movies';
                     
                     if (data.streaming && data.search_id) {
                         currentSearchId = data.search_id;

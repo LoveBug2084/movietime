@@ -65,8 +65,23 @@ changes:
   - Renamed /api/popular/all to /api/movies/all to reflect it now returns all movies (popular + genre)
 
 - replaced Update button with automatic movie count display:
-  - Removed Update Movies button entirely
-  - Added movie count display (e.g., "4,523 Movies") in pagination area
-  - Auto-refresh polls every 10 seconds to check for new movies
-  - Count updates automatically without user interaction
-  - Layout: sort | n Movies | prev | page n of n | next
+   - Removed Update Movies button entirely
+   - Added movie count display (e.g., "4,523 Movies") in pagination area
+   - Auto-refresh polls every 10 seconds to check for new movies
+   - Count updates automatically without user interaction
+   - Layout: sort | n Movies | prev | page n of n | next
+
+- added genre-based filtering:
+   - Replaced Type dropdown with Genre dropdown (19 genres)
+   - Frontend filters movies by genre_ids field
+   - Backend now includes genre_ids in movie data
+
+- added "N of T Movies" display:
+   - Shows filtered count (N) of total cache count (T)
+   - When search or genre filter active, displays "N of T Movies"
+   - When no filter, displays just "T Movies"
+
+- fixed auto-refresh movie count bug:
+   - Auto-refresh now only updates movie cache, not display
+   - Previously auto-refresh tried to recalculate N and showed wrong count
+   - Display "N of T" stays until user performs new search

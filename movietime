@@ -350,7 +350,8 @@ def fetch_movie_page(page):
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
-                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None
+                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+                "genre_ids": m.get("genre_ids", [])
             })
         return movies, data.get("total_pages", 1)
     except Exception as e:
@@ -371,7 +372,8 @@ def fetch_movie_by_genre(genre_id, page):
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
-                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None
+                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
+                "genre_ids": m.get("genre_ids", [])
             })
         return movies, data.get("total_pages", 1)
     except Exception as e:
