@@ -1,0 +1,66 @@
+2026-04-14T05:33:42.780580 [DEBUG playable] downloaded: 16384, min: 5242880
+2026-04-14T05:33:42.806126 [DEBUG playable] insufficient data
+2026-04-14T05:33:44.649665 [DEBUG playable] downloaded: 212992, min: 5242880
+2026-04-14T05:33:44.649789 [DEBUG playable] insufficient data
+2026-04-14T05:33:46.612116 [DEBUG playable] downloaded: 1097728, min: 5242880
+2026-04-14T05:33:46.612236 [DEBUG playable] insufficient data
+2026-04-14T05:33:48.612034 [DEBUG playable] downloaded: 1703936, min: 5242880
+2026-04-14T05:33:48.612127 [DEBUG playable] insufficient data
+2026-04-14T05:33:50.611877 [DEBUG playable] downloaded: 4079616, min: 5242880
+2026-04-14T05:33:50.611939 [DEBUG playable] insufficient data
+2026-04-14T05:33:52.611867 [DEBUG playable] downloaded: 7143424, min: 5242880
+2026-04-14T05:33:52.612013 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:33:52.612086 [DEBUG playable] no priority set, allowing
+2026-04-14T05:33:52.634432 [DEBUG frontend] startPlayback called
+2026-04-14T05:33:52.654382 [DEBUG play] video_file: download/Aliens 1986 Special Cut Remastered 1080p BluRay HEVC x265 5.1 BONE.mkv
+2026-04-14T05:33:52.654464 [DEBUG play] valid: True, file_size: 2831246493
+2026-04-14T05:33:52.654493 [DEBUG play] Starting mpv with: download/Aliens 1986 Special Cut Remastered 1080p BluRay HEVC x265 5.1 BONE.mkv
+2026-04-14T05:33:52.654956 [DEBUG play] mpv started successfully
+2026-04-14T05:33:52.659316 [DEBUG frontend] startPlayback resp: 200 {"file":"download/Aliens 1986 Special Cut Remastered 1080p BluRay HEVC x265 5.1 BONE.mkv","status":"playing"}
+2026-04-14T05:38:51.925536 [DEBUG magnet] waiting for metadata: Aliens DC (1986) 1080p BrRip x264 - YIFY
+2026-04-14T05:38:52.926236 [DEBUG magnet] metadata received, applying priority: Aliens DC (1986) 1080p BrRip x264 - YIFY
+2026-04-14T05:38:54.159896 [DEBUG playable] downloaded: 79691776, min: 5242880
+2026-04-14T05:38:54.185756 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:38:54.216524 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:38:55.933364 [DEBUG playable] downloaded: 83886080, min: 5242880
+2026-04-14T05:38:55.933452 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:38:55.934398 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:38:57.933076 [DEBUG playable] downloaded: 88080384, min: 5242880
+2026-04-14T05:38:57.933156 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:38:57.933206 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:38:59.947874 [DEBUG playable] downloaded: 88768512, min: 5242880
+2026-04-14T05:38:59.947922 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:38:59.947952 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:01.971391 [DEBUG playable] downloaded: 90701824, min: 5242880
+2026-04-14T05:39:01.971475 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:01.971512 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:03.930949 [DEBUG playable] downloaded: 93126656, min: 5242880
+2026-04-14T05:39:03.931012 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:03.931044 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:05.930987 [DEBUG playable] downloaded: 95256576, min: 5242880
+2026-04-14T05:39:05.931044 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:05.931085 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:08.035108 [DEBUG playable] downloaded: 98254848, min: 5242880
+2026-04-14T05:39:08.035173 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:08.035204 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:09.930633 [DEBUG playable] downloaded: 102367232, min: 5242880
+2026-04-14T05:39:09.930709 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:09.930749 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:11.930340 [DEBUG playable] downloaded: 107380736, min: 5242880
+2026-04-14T05:39:11.930401 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:11.930444 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:13.931297 [DEBUG playable] downloaded: 109428736, min: 5242880
+2026-04-14T05:39:13.931359 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:13.931390 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:15.930820 [DEBUG playable] downloaded: 112852992, min: 5242880
+2026-04-14T05:39:15.930893 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:15.930921 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:17.930848 [DEBUG playable] downloaded: 114196480, min: 5242880
+2026-04-14T05:39:17.930922 [DEBUG playable] start_piece: None, header_count: 10
+2026-04-14T05:39:17.930969 [DEBUG playable] waiting for metadata - NOT playable
+2026-04-14T05:39:22.565069 [DEBUG frontend] startPlayback called
+2026-04-14T05:39:22.587000 [DEBUG play] video_file: download/Aliens DC (1986) [1080p]/Aliens.Directors.Cut.1986.1080p.BRrip.x264.GAZ.YIFY.mp4
+2026-04-14T05:39:22.587087 [DEBUG play] valid: True, file_size: 2363786037
+2026-04-14T05:39:22.587118 [DEBUG play] Starting mpv with: download/Aliens DC (1986) [1080p]/Aliens.Directors.Cut.1986.1080p.BRrip.x264.GAZ.YIFY.mp4
+2026-04-14T05:39:22.592615 [DEBUG play] mpv started successfully
+2026-04-14T05:39:22.595686 [DEBUG frontend] startPlayback resp: 200 {"file":"download/Aliens DC (1986) [1080p]/Aliens.Directors.Cut.1986.1080p.BRrip.x264.GAZ.YIFY.mp4","status":"playing"}

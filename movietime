@@ -24,6 +24,20 @@ import libtorrent as lt
 
 app = Flask(__name__)
 
+DEBUG_LOG = "debug.log"
+
+def log_debug(msg):
+    import datetime
+    with open(DEBUG_LOG, "a") as f:
+        f.write(f"{datetime.datetime.now().isoformat()} {msg}\n")
+
+@app.route("/api/debug", methods=["POST"])
+def api_debug():
+    data = request.json or {}
+    msg = data.get("msg", "")
+    log_debug(f"[DEBUG frontend] {msg}")
+    return jsonify({"ok": True})
+
 @app.after_request
 def add_no_cache(response):
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -977,6 +991,14 @@ def apply_sequential_priority(handle):
     for i in range(video_start_piece, video_start_piece + header_count):
         handle.piece_priority(i, 7)
 
+    # Store piece boundaries for header-ready check
+    with download_lock:
+        current_download["video_start_piece"] = video_start_piece
+        current_download["header_piece_count"] = header_count
+        current_download["piece_length"] = piece_length
+
+    log_debug(f"[DEBUG priority] Stored: start_piece={video_start_piece}, header_count={header_count}")
+
     video_file_name = files[best_file].path
     print(f"Applied sequential priority: '{video_file_name}' ({best_size / (1024*1024):.1f} MB)")
     print(f"  Video pieces: {video_start_piece} to {video_end_piece} (of {num_pieces} total)")
@@ -1027,12 +1049,15 @@ def download_torrent(magnet_link, info_hash, name):
     # For magnet links, metadata must be downloaded first.
     # Poll until metadata arrives, then apply piece priorities.
     def wait_for_metadata_and_apply():
+        log_debug(f"[DEBUG magnet] waiting for metadata: {name}")
         for _ in range(120):  # wait up to 60 seconds
             time.sleep(0.5)
             if handle.has_metadata():
+                log_debug(f"[DEBUG magnet] metadata received, applying priority: {name}")
                 apply_sequential_priority(handle)
                 print(f"Metadata received, sequential priority applied for: {name}")
                 return
+        log_debug(f"[DEBUG magnet] metadata timeout: {name}")
         print(f"Warning: metadata not received within 60s for: {name}")
 
     threading.Thread(target=wait_for_metadata_and_apply, daemon=True).start()
@@ -1490,6 +1515,59 @@ def api_status():
 
     return jsonify({"status": "idle", "is_valid": False})
 
+HEADER_MIN_SIZE = 5 * 1024 * 1024  # 5MB minimum
+
+@app.route("/api/download/playable")
+def api_download_playable():
+    """Check if download is ready to play: minimum 5MB + valid header"""
+    with download_lock:
+        handle = current_download.get("handle")
+        if not handle or not handle.is_valid():
+            log_debug(f"[DEBUG playable] no handle or invalid")
+            return jsonify({"playable": False, "reason": "no_download"})
+        
+        # Check minimum size
+        status = handle.status()
+        downloaded = status.total_wanted_done
+        log_debug(f"[DEBUG playable] downloaded: {downloaded}, min: {HEADER_MIN_SIZE}")
+        
+        if downloaded < HEADER_MIN_SIZE:
+            log_debug(f"[DEBUG playable] insufficient data")
+            return jsonify({
+                "playable": False,
+                "reason": "insufficient_data",
+                "downloaded": downloaded,
+                "needed": HEADER_MIN_SIZE
+            })
+        
+        # Check header pieces
+        start_piece = current_download.get("video_start_piece")
+        header_count = current_download.get("header_piece_count", 10)
+        log_debug(f"[DEBUG playable] start_piece: {start_piece}, header_count: {header_count}")
+        
+        if start_piece is None:
+            log_debug(f"[DEBUG playable] waiting for metadata - NOT playable")
+            return jsonify({
+                "playable": False,
+                "reason": "waiting_for_metadata",
+                "downloaded": downloaded
+            })
+        
+        # Check if header pieces are downloaded
+        for i in range(start_piece, start_piece + header_count):
+            if not handle.have_piece(i):
+                log_debug(f"[DEBUG playable] header piece {i} not ready")
+                return jsonify({
+                    "playable": False,
+                    "reason": "header_not_ready",
+                    "downloaded": downloaded,
+                    "header_piece": i - start_piece + 1,
+                    "total_header_pieces": header_count
+                })
+        
+        log_debug(f"[DEBUG playable] playable=true")
+        return jsonify({"playable": True, "downloaded": downloaded})
+
 def is_download_active():
     """Check if libtorrent download is still in progress"""
     with download_lock:
@@ -1503,11 +1581,18 @@ def is_download_active():
 def api_play():
     """Start playing the current download with mpv"""
     video_file = find_video_file()
+    log_debug(f"[DEBUG play] video_file: {video_file}")
 
     if not video_file or not os.path.exists(video_file):
+        log_debug(f"[DEBUG play] ERROR: No video file found")
         return jsonify({"error": "No video file"}), 404
 
-    if not is_valid_video_file(video_file):
+    valid = is_valid_video_file(video_file)
+    file_size = os.path.getsize(video_file) if video_file else 0
+    log_debug(f"[DEBUG play] valid: {valid}, file_size: {file_size}")
+
+    if not valid:
+        log_debug(f"[DEBUG play] ERROR: Video file not valid")
         return jsonify({"error": "Video file not ready"}), 404
 
     with mpv_lock:
@@ -1519,6 +1604,7 @@ def api_play():
                 mpv_player["process"].kill()
 
         try:
+            log_debug(f"[DEBUG play] Starting mpv with: {video_file}")
             proc = subprocess.Popen(
                 ["mpv", "--fs", "--keep-open=yes", "--quiet", "--no-terminal",
                  "--vo=gpu", "--hwdec=no", "--force-window=yes",
@@ -1531,7 +1617,9 @@ def api_play():
             mpv_player["process"] = proc
             mpv_player["playing"] = True
             mpv_player["title"] = os.path.basename(video_file)
+            log_debug(f"[DEBUG play] mpv started successfully")
         except Exception as e:
+            log_debug(f"[DEBUG play] ERROR starting mpv: {e}")
             return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "playing", "file": video_file})

@@ -115,3 +115,16 @@ changes:
 - fixed torrent hover not fetching:
    - Added missing currentCategory variable
    - Was undefined, breaking torrent API calls
+
+- added header-ready playback check:
+   - New /api/download/playable endpoint
+   - Checks minimum 5MB downloaded AND header pieces ready
+   - Also waits for metadata to arrive (start_piece must be set)
+   - Prevents playback starting before video header is downloaded
+   - Fixed glitchy playback from starting at random position
+
+- added debug logging:
+   - Backend /api/play logs video_file, valid, file_size, errors
+   - Backend /api/download/playable logs all check values
+   - Debug log stored in debug.log file
+   - Frontend sends debug to backend /api/debug

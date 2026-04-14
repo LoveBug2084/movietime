@@ -1229,15 +1229,26 @@
                 if (miniFill) miniFill.style.width = percent + '%';
                 if (miniText) miniText.textContent = percent + '%';
                 
-                const playableThreshold = 5 * 1024 * 1024;
-                
-                if (downloaded >= playableThreshold && isValid) {
-                    card.classList.add('playable');
-                }
-                
-                if (!isStreaming && downloaded >= playableThreshold && isValid) {
-                    isStreaming = true;
-                    startPlayback();
+                // Check playable status via new API (5MB + header ready)
+                if (!isStreaming) {
+                    try {
+                        const playableResp = await fetch('/api/download/playable');
+                        const playableData = await playableResp.json();
+                        if (playableData.playable) {
+                            card.classList.add('playable');
+                            if (isValid) {
+                                isStreaming = true;
+                                startPlayback();
+                            }
+                        }
+                    } catch (e) {
+                        // Fallback: check minimum 5MB
+                        if (downloaded >= 5 * 1024 * 1024 && isValid) {
+                            card.classList.add('playable');
+                            isStreaming = true;
+                            startPlayback();
+                        }
+                    }
                 }
             } else {
                 percentEl.textContent = 'Starting...';
@@ -1252,17 +1263,19 @@
         }
         
         async function startPlayback() {
+            await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback called'}) });
             try {
                 const resp = await fetch('/api/play', { method: 'POST' });
                 const data = await resp.json();
+                await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback resp: ' + resp.status + ' ' + JSON.stringify(data)}) });
                 
                 if (!resp.ok) {
-                    console.error('Playback error:', data.error);
+                    alert('Playback error: ' + data.error);
                 } else {
                     checkPlayable();
                 }
             } catch (e) {
-                console.error('Playback error:', e.message);
+                await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback error: ' + e.message}) });
             }
         }
         
