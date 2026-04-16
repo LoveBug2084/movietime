@@ -1,3 +1,4 @@
 download/
 database/
 __pycache__/
+.tmdb

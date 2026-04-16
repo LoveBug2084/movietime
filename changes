@@ -1,6 +1,6 @@
 initial commit:
 
-This version upon start checks if there is a movie cache and if not it pulls all 500 pages * 20 movies of the most popular from tmdb to build a database of 10000 movies
+This version upon start runs continuous background sync that fetches all 19 genres x 500 pages from TMDB
 clicking on the moviecard or a torrent ijn the list starts a download, movie automatically plays when there is data buffered
 
 known issue:
@@ -179,3 +179,140 @@ changes:
    - Frontend 10s interval now appends vs replaces based on incremental flag
    - Significantly reduces bandwidth when no new movies
    - Zero file reads when count unchanged
+
+================================================================================
+Session 2 - Async rewrite and new_movies optimization:
+
+- simplified background sync to cycle through 19 genres continuously:
+  - Uses async parallel fetching (40 concurrent requests)
+  - Fetches all 500 pages per genre in parallel (~3 seconds per genre)
+  - No page tracking needed - always starts at page 1
+  - Saves only current_genre_index to sync_state.json for resume
+  - Removed popular/fetch_and_cache_popular_movies() initial load
+  - Removed phase and current_page tracking
+
+- renamed database files:
+  - active.json → movies_active.json
+  - building.json → movies_building.json
+
+- added ensure_new_movies_files() function for new_movies file protection
+
+- optimized background sync with new_movies double-buffer:
+  - New database/new_movies_active.json and new_movies_building.json (atomic swap)
+  - Sync writes to new_movies_building (not main database)
+  - Ensure files exist on swap with ensure_new_movies_files()
+  - Swap in API: new_movies_active ← new_movies_building
+  - Then update main database via building swap (active ← building)
+  - API sends new movies, then updates main database
+  - Clear new_movies_building after each poll
+  - Initial load (?full=1) reads active.json for full history
+  - Fixed: poll returns main database total (not new_movies buffer total)
+
+- removed qwebchannel:
+  - Removed serve_qwebchannel route and pywebchannel.js lookup
+  - Removed PyQtBridge class and QWebChannel setup
+  - Was set up but never used by frontend
+  - Folder button uses Flask API, not pyqt bridge
+
+- Fixed validation treats empty files as valid:
+  - validate_json_file() now returns True for empty files instead of False
+  - Previously empty files were treated as corrupted
+
+- Fixed new_movies accumulation flow:
+  - Sync no longer clears during genre changes
+  - All 19 genres accumulate unique movies in new_movies_building continuously
+  - Sync keeps looping, movies keep accumulating
+  - Poll reads when requested: sends to UI, main db updates, then clears
+  - Only cleared AFTER new movies sent to frontend
+  - Ready for next batch
+
+- Fixed sync runs continuously:
+  - Added check to prevent sync from stopping after one genre cycle
+  - Sync now loops through all 19 genres indefinitely
+
+- Changed poll interval from 10 seconds to 1 second:
+   - UI polls for new movies every 1 second for faster updates
+
+- Added debug logging to background sync:
+   - Added [SYNC] prefix to all sync-related prints for easier debugging
+   - Added try/except around entire while loop to catch silent exceptions
+   - Added traceback print on exception to identify root cause
+   - Added print at start of while loop to verify re-entry on second cycle
+   - Helps diagnose why sync stops after second cycle
+
+- Fixed sync loop printing "Background sync stopped" after every cycle:
+   - The status=stopped and print lines were inside the while loop
+   - Moved them outside the while loop so they only run on actual app shutdown
+   - Loop now runs forever correctly
+
+- Fixed auto-refresh not updating movie count:
+   - Changed poll interval from 10000ms (10s) back to 1000ms (1s)
+   - Total now updates every poll regardless of whether new movies are returned
+   - Previously total only updated when movies array was non-empty
+   - Count now updates in real-time as sync adds movies to database
+
+- Fixed race condition causing sync to stop early:
+   - Added new_movies_lock to protect new_movies file operations
+   - Sync thread now acquires lock when writing to new_movies_building.json
+   - Poll API acquires lock when validating, swapping, and clearing new_movies files
+   - Prevents validation errors from corrupt reads during concurrent writes
+
+- Fixed movie cards not updating when new movies arrive:
+   - Added renderMovies() call after updating displayMovies in poll response
+   - Recalculates currentMovies from updated displayMovies (respects current page)
+   - New movies now appear in grid without needing restart or search
+   - Changed poll interval to 5 seconds for less frequent updates
+
+- Simplified poll logic:
+   - Poll now transfers ALL movies from buffer to main DB each time
+   - No tracking of previous counts - each poll processes current buffer
+   - Clear new_movies_building after transfer so sync can add more
+   - Much simpler logic that matches the requested design
+
+- Renamed loadPopular to loadAll:
+   - Function was loading all movies from database, not just popular
+   - Updated function name and related comments for clarity
+
+================================================================================
+Session 3 - Search optimization and bug fixes:
+
+- Moved TMDB_API_KEY from hardcoded to .tmdb file:
+   - Created .tmdb file with raw API key
+   - Removed hardcoded key from source
+   - Added .tmdb to .gitignore
+   - Implemented load_env_file() function to read key
+
+- Fixed pagination with dropdown filters:
+   - changePage() now applies current genre/rating/year filters
+   - Previously used unfiltered displayMovies causing wrong results
+
+- Fixed search results overwritten by auto-refresh:
+   - Auto-refresh now skips when currentSource === 'search'
+   - Previously replaced search results with popular movies
+
+- Made search default to local-only:
+   - Added local=1 parameter to search API
+   - Search now uses only local cache + apibay (no TMDb API)
+   - Auto-refresh re-runs local search to update results
+   - Much faster than hitting TMDb on every poll
+
+- Made auto-refresh only update UI when data changes:
+   - Added lastTotalMovies tracking
+   - Non-search mode: only updates if totalDatabaseMovies changes
+   - Search mode: only updates if search result count changes
+   - Prevents flickering/reset of movie cards during hover
+
+- Fixed movie count showing "N of N" instead of "N of T":
+   - Added totalDatabaseMovies variable from backend
+   - Backend returns total_database in search response
+   - All movie count displays now use totalDatabaseMovies
+   - Shows correct "247 of 119000 Movies" format
+
+- Fixed background sync not fetching movies:
+   - load_env_file() was defined after TMDB_API_KEY was set to None
+   - Moved function definition before it's called
+   - Sync now correctly reads key from .tmdb file
+
+- Removed debug print statements:
+   - Removed TMDB_API_KEY debug print
+   - Removed per-page fetch debug prints
