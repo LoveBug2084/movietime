@@ -1154,8 +1154,11 @@
                     }
                 }
                 
-                card.onclick = (e) => {
+                card.onclick = async (e) => {
                     if (e.target.closest('.resolution-item')) return;
+                    const statusResp = await fetch('/api/status');
+                    const statusData = await statusResp.json();
+                    if (!statusData.info_hash || statusData.status === 'idle' || statusData.status === 'downloading') return;
                     playMovie(movie, source, card);
                 };
                 grid.appendChild(card);
@@ -1336,6 +1339,7 @@
             activeCard = card;
             card.classList.add('downloading');
             card.dataset.infoHash = torrent.info_hash;
+            card.dataset.fileSize = torrent.size || 0;
             
             try {
                 const resp = await fetch('/api/start', {
@@ -1393,6 +1397,7 @@
                 magnet = best.magnet;
                 info_hash = best.info_hash;
                 name = best.name;
+                card.dataset.fileSize = best.size || 0;
             }
             
             // Check if this exact torrent is already downloading/ready
@@ -1413,8 +1418,6 @@
                 card.dataset.infoHash = info_hash;
                 
                 if (statusData.status === 'ready') {
-                    startPlayback();
-                } else if (statusData.is_valid && statusData.downloaded_size >= 5 * 1024 * 1024) {
                     startPlayback();
                 } else {
                     downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
@@ -1483,6 +1486,10 @@
                 
                 if (!isStreaming) {
                     isStreaming = true;
+                    if (downloadPollInterval) {
+                        clearInterval(downloadPollInterval);
+                        downloadPollInterval = null;
+                    }
                     startPlayback();
                 }
             } else if (data.status === 'error') {
@@ -1493,7 +1500,7 @@
                 percentEl.textContent = 'Error';
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
-                const totalSize = data.total_size || 0;
+                const totalSize = parseInt(card.dataset.fileSize, 10) || 100 * 1024 * 1024;
                 const isValid = data.is_valid;
                 const percent = data.percent || 0;
                 
@@ -1511,25 +1518,18 @@
                 if (miniFill) miniFill.style.width = percent + '%';
                 if (miniText) miniText.textContent = percent + '%';
                 
-                // Check playable status via new API (5MB + header ready)
+                // Check playable status via backend API (100MB + header ready)
                 if (!isStreaming) {
-                    try {
-                        const playableResp = await fetch('/api/download/playable');
-                        const playableData = await playableResp.json();
-                        if (playableData.playable) {
-                            card.classList.add('playable');
-                            if (isValid) {
-                                isStreaming = true;
-                                startPlayback();
-                            }
+                    const playableResp = await fetch('/api/download/playable');
+                    const playableData = await playableResp.json();
+                    if (playableData.playable && isValid) {
+                        card.classList.add('playable');
+                        isStreaming = true;
+                        if (downloadPollInterval) {
+                            clearInterval(downloadPollInterval);
+                            downloadPollInterval = null;
                         }
-                    } catch (e) {
-                        // Fallback: check minimum 5MB
-                        if (downloaded >= 5 * 1024 * 1024 && isValid) {
-                            card.classList.add('playable');
-                            isStreaming = true;
-                            startPlayback();
-                        }
+                        startPlayback();
                     }
                 }
             } else {
@@ -1569,10 +1569,13 @@
                 // Remove playable class from all cards first
                 document.querySelectorAll('.movie-card.playable').forEach(c => c.classList.remove('playable'));
                 
-                if (data.status === 'ready' || data.status === 'downloading') {
-                    if (activeCard) {
-                        activeCard.classList.add('playable');
-                    }
+                if ((data.status === 'ready' || data.status === 'downloading') && data.info_hash) {
+                    const cards = document.querySelectorAll('.movie-card');
+                    cards.forEach(card => {
+                        if (card.dataset.infoHash === data.info_hash) {
+                            card.classList.add('playable');
+                        }
+                    });
                 }
             } catch (e) {}
         }
