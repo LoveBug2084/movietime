@@ -77,15 +77,16 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
 
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
-# TMDB genre IDs
-GENRE_IDS = [28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37]
+# TMDB genre IDs (0 = Popular as special entry)
+GENRE_IDS = [0, 28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37]
+GENRE_NAMES = {0: "Popular", 28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Science Fiction", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"}
 
 # Cache progress tracking
 cache_progress = {"pages_fetched": 0, "total_pages": 0, "status": "idle"}
 
 # Sync state for incremental background sync
 SYNC_STATE_FILE = "database/sync_state.json"
-sync_state = {"current_genre_index": 0, "last_updated": None, "status": "idle"}
+sync_state = {"genre_index": 0, "last_updated": None, "status": "idle", "current_page": 1}
 sync_stop_event = threading.Event()
 sync_thread = None
 movie_ids = set()  # O(1) deduplication
@@ -93,11 +94,11 @@ movie_count = 0  # Track total movie count for incremental sync
 
 new_movies_lock = threading.Lock()  # Protect new_movies file operations
 
-# Rate limiting: 25 req/sec = 0.04 sec between requests
-SYNC_RATE_LIMIT = 0.04
+# Rate limiting: 24 req/sec = 1/24 sec between requests
+SYNC_RATE_LIMIT = 1 / 24
 
-# Async config - match TMDB rate limit
-MAX_CONCURRENT = 40
+# Async config - serial request for rate limiting
+MAX_CONCURRENT = 1
 
 def ensure_database_files():
     """Ensure both movies_active.json and movies_building.json exist"""
@@ -188,10 +189,10 @@ def load_sync_state():
         with open(SYNC_STATE_FILE, "r") as f:
             loaded = json.load(f)
             sync_state = {
-                "current_genre_index": loaded.get("current_genre_index", 0),
+                "genre_index": loaded.get("genre_index", 0),
                 "last_updated": loaded.get("last_updated"),
                 "status": loaded.get("status", "idle"),
-                "last_movie_count": loaded.get("last_movie_count", 0)
+                "current_page": loaded.get("current_page", 1)
             }
     except Exception as e:
         print(f"Error loading sync state: {e}")
@@ -304,93 +305,65 @@ def background_sync():
     
     all_movies = load_movies_from_cache()
     load_sync_state()
+    print(f"Loaded sync_state: {sync_state}")
 
-    genre_index = sync_state.get("current_genre_index", 0)
+    genre_index = sync_state.get("genre_index", 0)
 
     sync_state["status"] = "running"
     save_sync_state()
-
-    async def fetch_500_pages(genre_id):
-        connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-
-            async def fetch_one(page):
-                url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&with_genres={genre_id}&language=en-US&page={page}"
-                async with semaphore:
-                    async with session.get(url, timeout=15) as resp:
-                        data = await resp.json()
-                        if "status_code" in data:
-                            print(f"API error: {data}")
-                        movies = []
-                        for m in data.get("results", []):
-                            movies.append({
-                                "id": m.get("id"),
-                                "title": m.get("title"),
-                                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-                                "overview": m.get("overview", ""),
-                                "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
-                                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-                                "genre_ids": m.get("genre_ids", [])
-                            })
-                        return movies
-
-            tasks = [fetch_one(page) for page in range(1, 501)]
-            results = await asyncio.gather(*tasks)
-
-            all_movies = []
-            for movies in results:
-                all_movies.extend(movies)
-            return all_movies
-
+    
     while not sync_stop_event.is_set():
-        try:
-            print(f"[SYNC] Starting while loop, genre_index={genre_index}")
-            for i in range(genre_index, len(GENRE_IDS)):
-                if sync_stop_event.is_set():
-                    print("[SYNC] Stop event set, breaking inner loop")
-                    break
+        page = sync_state.get("current_page", 1)
+        genre_index = sync_state.get("genre_index", 0)
+        genre_id = GENRE_IDS[genre_index]
 
-                genre_id = GENRE_IDS[i]
-                print(f"Fetching genre {genre_id} ({i+1}/19)...")
+        if genre_id == 0:
+            movies, total_pages = fetch_movie_page(page)
+        else:
+            movies, total_pages = fetch_movie_by_genre(genre_id, page)
+        
+        new_movies = []
+        for m in movies:
+            if m["id"] not in movie_ids:
+                movie_ids.add(m["id"])
+                new_movies.append(m)
+        
+        genre_name = GENRE_NAMES[GENRE_IDS[genre_index]]
+        phase_label = f"{genre_name.ljust(16)}, Page {page:>3}"
 
-                try:
-                    genre_movies = asyncio.run(fetch_500_pages(genre_id))
-                except Exception as e:
-                    print(f"[SYNC] Error fetching genre {genre_id}: {e}")
-                    continue
+        if new_movies:
+            print(f"{phase_label}: {len(new_movies):>2} new")
+            all_movies.extend(new_movies)
+            append_to_building(new_movies)
+            
+            if validate_json_file(BUILDING_FILE):
+                atomic_swap_and_sync()
+                append_to_building(new_movies)
+            else:
+                recover_from_corruption()
+                append_to_building(new_movies)
+            
+            global movie_count
+            movie_count += len(new_movies)
 
-                new_movies = []
-                for m in genre_movies:
-                    if m["id"] not in movie_ids:
-                        movie_ids.add(m["id"])
-                        new_movies.append(m)
-
-                if new_movies:
-                    all_movies.extend(new_movies)
-
-                    with new_movies_lock:
-                        with open(NEW_MOVIES_BUILDING, "a") as f:
-                            for movie in new_movies:
-                                f.write(json.dumps(movie) + "\n")
-
-                    global movie_count
-                    movie_count += len(new_movies)
-
-                print(f"Genre {genre_id}: {len(new_movies)} new movies (total: {len(all_movies)})")
-
-                sync_state["current_genre_index"] = i
-                sync_state["last_updated"] = time.time()
-                save_sync_state()
-
+        genre_index += 1
+        if genre_index >= len(GENRE_IDS):
             genre_index = 0
-            print("Completed all genres, restarting...")
-        except Exception as e:
-            print(f"[SYNC] Exception in sync loop: {e}")
-            import traceback
-            traceback.print_exc()
-            break
+            page += 1
+            if page > 500:
+                page = 1
+                print("Completed full cycle, restarting...")
 
+        sync_state["current_page"] = page
+        sync_state["genre_index"] = genre_index
+        sync_state["last_updated"] = time.time()
+        save_sync_state()
+        
+        if sync_stop_event.is_set():
+            break
+        
+        time.sleep(SYNC_RATE_LIMIT)
+    
     sync_state["status"] = "stopped"
     save_sync_state()
     print("Background sync stopped.")
@@ -473,8 +446,11 @@ def fetch_and_cache_popular_movies():
             semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
             async def fetch_page(page):
+                if sync_stop_event.is_set():
+                    return []
                 url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=en-US&page={page}"
                 async with semaphore:
+                    await asyncio.sleep(SYNC_RATE_LIMIT)
                     async with session.get(url, timeout=15) as resp:
                         data = await resp.json()
                         movies = []
