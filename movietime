@@ -16,6 +16,7 @@ import asyncio
 import aiohttp
 import subprocess
 import time
+import sys
 import threading
 import json
 import requests
@@ -35,11 +36,24 @@ import libtorrent as lt
 app = Flask(__name__)
 
 DEBUG_LOG = "debug.log"
+DEBUG = "--debug" in sys.argv or "-debug" in sys.argv
+HELP = "--help" in sys.argv or "-h" in sys.argv
+
+def print_help():
+    print("Usage: movietime [options]")
+    print("Options:")
+    print("  --debug, -debug     Enable debug logging to debug.log")
+    print("  --help, -h, -help  Show this help message")
+    sys.exit(0)
+
+if HELP:
+    print_help()
 
 def log_debug(msg):
     import datetime
-    with open(DEBUG_LOG, "a") as f:
-        f.write(f"{datetime.datetime.now().isoformat()} {msg}\n")
+    if DEBUG:
+        with open(DEBUG_LOG, "a") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} {msg}\n")
 
 @app.route("/api/debug", methods=["POST"])
 def api_debug():
@@ -258,7 +272,6 @@ def atomic_swap_and_sync():
         os.replace(CACHE_FILE, temp_active)
         os.replace(BUILDING_FILE, CACHE_FILE)
         os.replace(temp_active, BUILDING_FILE)
-        print(f"Swapped: active ← building, building ← old active")
     except Exception as e:
         print(f"Swap failed: {e}")
         if os.path.exists(temp_active):
@@ -329,10 +342,10 @@ def background_sync():
                 new_movies.append(m)
         
         genre_name = GENRE_NAMES[GENRE_IDS[genre_index]]
-        phase_label = f"{genre_name.ljust(16)}, Page {page:>3}"
+        phase_label = f"{genre_name.ljust(15)}, Page {page:>3}/500, {len(new_movies):>2} new"
 
         if new_movies:
-            print(f"{phase_label}: {len(new_movies):>2} new")
+            print(f"{phase_label}")
             all_movies.extend(new_movies)
             append_to_building(new_movies)
             
