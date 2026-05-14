@@ -316,7 +316,7 @@ def background_sync():
     global sync_state, movie_ids
     print("Starting background movie sync...")
     
-    all_movies = load_movies_from_cache()
+    load_movies_from_cache()
     load_sync_state()
     print(f"Loaded sync_state: {sync_state}")
 
@@ -346,7 +346,6 @@ def background_sync():
 
         if new_movies:
             print(f"{phase_label}")
-            all_movies.extend(new_movies)
             append_to_building(new_movies)
             
             if validate_json_file(BUILDING_FILE):
@@ -1618,7 +1617,7 @@ def api_status():
 
             return jsonify({
                 "status": "downloading",
-                "downloaded_size": downloaded if downloaded > 0 else file_size,
+                "downloaded_size": downloaded,
                 "total_size": total_size,
                 "is_valid": valid,
                 "complete": is_complete,
@@ -1808,7 +1807,7 @@ class MainWindow(QMainWindow):
 
 def run_flask():
     """Run Flask server in background thread"""
-    app.run(host="0.0.0.0", port=65000, debug=False, use_reloader=False)
+    app.run(host="127.0.0.1", port=65000, debug=False, use_reloader=False)
 
 
 def cleanup_on_exit():
