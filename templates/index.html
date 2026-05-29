@@ -1152,13 +1152,31 @@
                     if (torrentCache[title]) {
                         updateCardWithTorrent(card, torrentCache[title]);
                     }
+                } else if (movie.seeders && !movie.poster) {
+                    const torrents = [{
+                        resolution: movie.resolution || 'N/A',
+                        size: movie.size || '0',
+                        seeders: movie.seeders,
+                        info_hash: movie.info_hash || '',
+                        magnet: movie.magnet || '',
+                        name: movie.name || title
+                    }];
+                    updateCardWithTorrent(card, torrents);
                 }
                 
                 card.onclick = async (e) => {
                     if (e.target.closest('.resolution-item')) return;
                     const statusResp = await fetch('/api/status');
                     const statusData = await statusResp.json();
-                    if (!statusData.info_hash || statusData.status === 'idle' || statusData.status === 'downloading') return;
+                    // Allow play if: ready with file exists (don't block on info_hash comparison)
+                    if (statusData.status === 'ready' && statusData.file) {
+                        startPlayback();
+                        return;
+                    }
+                    // Allow play if no active download OR same torrent
+                    if (statusData.status === 'downloading') {
+                        if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                    }
                     playMovie(movie, source, card);
                 };
                 grid.appendChild(card);
@@ -1365,9 +1383,21 @@
             }
         }
         
-        async function playMovie(movie, source, card) {
-            // Determine what torrent we want for this click
+async function playMovie(movie, source, card) {
+            // Determine what torrent we want for this movie
             let magnet, info_hash, name;
+            
+            // Check if this movie was already downloaded - check both card dataset and status
+            const cardInfoHash = card.dataset.infoHash || movie.info_hash || '';
+            const statusResp = await fetch('/api/status');
+            const statusData = await statusResp.json();
+            
+            // If we have a matching info_hash and status is ready (or no active download but we have a file path), play directly
+            const statusInfoHash = statusData.info_hash || '';
+            if (cardInfoHash && statusInfoHash === cardInfoHash && (statusData.status === 'ready' || (statusData.status === 'idle' && statusData.file))) {
+                startPlayback();
+                return;
+            }
             
             if (movie.magnet && movie.info_hash) {
                 magnet = movie.magnet;
@@ -1400,10 +1430,7 @@
                 card.dataset.fileSize = best.size || 0;
             }
             
-            // Check if this exact torrent is already downloading/ready
-            const statusResp = await fetch('/api/status');
-            const statusData = await statusResp.json();
-            
+            // Check if this exact torrent is already downloading/ready (reuse status from earlier if same info_hash)
             if (statusData.info_hash && statusData.info_hash === info_hash) {
                 // Same torrent - resume or play
                 if (activeCard && activeCard !== card) {

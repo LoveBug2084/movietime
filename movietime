@@ -1583,7 +1583,19 @@ def api_sync_status():
 @app.route("/api/status")
 def api_status():
     """Check download status with progress using libtorrent"""
-    video_file = find_video_file()
+    # First check if we have a stored video_file that still exists
+    with download_lock:
+        stored_file = current_download.get("video_file")
+        info_hash = current_download.get("info_hash")
+    
+    video_file = None
+    if stored_file and os.path.exists(stored_file) and os.path.getsize(stored_file) > 0:
+        if is_valid_video_file(stored_file):
+            video_file = stored_file
+    
+    # Fallback to searching for video files
+    if not video_file:
+        video_file = find_video_file()
 
     with download_lock:
         handle = current_download["handle"]
@@ -1601,6 +1613,9 @@ def api_status():
         # Update video_file reference from libtorrent
         if not video_file and is_complete:
             video_file = find_video_file()
+            if video_file:
+                with download_lock:
+                    current_download["video_file"] = video_file
 
         if video_file:
             file_size = os.path.getsize(video_file)
@@ -1644,6 +1659,7 @@ def api_status():
                 "file": video_file,
                 "downloaded_size": file_size,
                 "is_valid": valid,
+                "info_hash": current_download.get("info_hash"),
             })
 
     return jsonify({"status": "idle", "is_valid": False})
