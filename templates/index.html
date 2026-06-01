@@ -1508,15 +1508,16 @@ async function playMovie(movie, source, card) {
             
             if (data.status === 'ready') {
                 console.log('Ready to play, downloaded:', data.downloaded_size || 'unknown');
-                
+
                 card.classList.add('playable');
-                
+
+                if (downloadPollInterval) {
+                    clearInterval(downloadPollInterval);
+                    downloadPollInterval = null;
+                }
+
                 if (!isStreaming) {
                     isStreaming = true;
-                    if (downloadPollInterval) {
-                        clearInterval(downloadPollInterval);
-                        downloadPollInterval = null;
-                    }
                     startPlayback(info_hash);
                 }
             } else if (data.status === 'error') {
@@ -1552,10 +1553,6 @@ async function playMovie(movie, source, card) {
                     if (playableData.playable && isValid) {
                         card.classList.add('playable');
                         isStreaming = true;
-                        if (downloadPollInterval) {
-                            clearInterval(downloadPollInterval);
-                            downloadPollInterval = null;
-                        }
                         startPlayback(expectedInfoHash);
                     }
                 }
