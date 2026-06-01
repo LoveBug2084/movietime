@@ -321,6 +321,9 @@
             transition: width 0.3s ease;
             width: 0%;
         }
+        .movie-card .download-bar .dl-progress-track .dl-progress-fill.blue {
+            background: #0099ff;
+        }
         .movie-card .download-bar .dl-progress-track .dl-percent-text {
             position: absolute;
             right: 8px;
@@ -685,6 +688,7 @@
         let hoverTimeouts = {};
         let pendingFetches = {};
         let downloadPollInterval = null;
+        const HEADER_MIN_SIZE = 100 * 1024 * 1024; // 100MB
         let popularLoaded = false;
         let totalDatabaseMovies = 0;
         let lastTotalMovies = 0;
@@ -1266,12 +1270,25 @@
                         const cards = document.querySelectorAll('.movie-card');
                         for (const c of cards) {
                             if (c.dataset.infoHash === data.info_hash) {
-                                // Found it
-                                const percent = data.percent || 0;
+                                // Found it - apply two-stage progress logic
+                                const downloaded = data.downloaded_size || 0;
+                                let displayPercent;
+                                if (downloaded < HEADER_MIN_SIZE) {
+                                    displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
+                                } else {
+                                    displayPercent = data.percent || 0;
+                                }
                                 const fill = c.querySelector('.dl-progress-fill');
                                 const text = c.querySelector('.dl-percent-text');
-                                if (fill) fill.style.width = percent + '%';
-                                if (text) text.textContent = percent + '%';
+                                if (fill) {
+                                    if (downloaded < HEADER_MIN_SIZE) {
+                                        fill.classList.add('blue');
+                                    } else {
+                                        fill.classList.remove('blue');
+                                    }
+                                    fill.style.width = displayPercent + '%';
+                                }
+                                if (text) text.textContent = displayPercent + '%';
                                 break;
                             }
                         }
@@ -1282,7 +1299,7 @@
         
         async function startDownloadFromTorrent(card, torrent) {
             console.log('startDownloadFromTorrent:', torrent.name, torrent.info_hash);
-            
+
             // If this exact torrent is already downloading, just show progress
             try {
                 const statusResp = await fetch('/api/status');
@@ -1496,10 +1513,20 @@ async function playMovie(movie, source, card) {
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
                 const isValid = data.is_valid;
-                const percent = data.percent || 0;
 
-                percentText.textContent = percent + '%';
-                progressFill.style.width = percent + '%';
+                let displayPercent;
+                if (downloaded < HEADER_MIN_SIZE) {
+                    // Stage 1: Show progress toward 100MB threshold
+                    displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
+                    progressFill.classList.add('blue');
+                } else {
+                    // Stage 2: Show actual download progress
+                    displayPercent = data.percent || 0;
+                    progressFill.classList.remove('blue');
+                }
+
+                percentText.textContent = displayPercent + '%';
+                progressFill.style.width = displayPercent + '%';
 
                 // Check playable status via backend API (100MB + header ready)
                 if (!isStreaming) {
