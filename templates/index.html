@@ -1209,7 +1209,10 @@
             const listEl = card.querySelector('.resolution-list');
             if (!listEl) return;
             
-            if (listEl.children.length === torrents.length) return;
+            const adultCategories = ['501', '505', '506'];
+            const movieTorrents = torrents.filter(t => !adultCategories.includes(t.category));
+
+            if (listEl.children.length === movieTorrents.length) return;
             
             const seedersEl = card.querySelector('.seeders');
             if (seedersEl) seedersEl.style.display = 'none';
@@ -1217,10 +1220,7 @@
             const resEl = card.querySelector('.resolution');
             if (resEl) resEl.style.display = 'none';
             
-            listEl.innerHTML = '';
-            listEl.classList.add('visible');
-            
-            torrents.forEach(torrent => {
+            movieTorrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
                 
