@@ -293,28 +293,81 @@
             color: #888;
             margin-top: 5px;
         }
-        .movie-card .dl-progress-mini {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: rgba(0,0,0,0.7);
-            z-index: 5;
+        .movie-card .download-bar {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 4px;
+            padding: 4px 8px;
+            background: rgba(0,0,0,0.85);
+            border-radius: 0 0 8px 8px;
         }
-        .movie-card .dl-progress-mini .dl-progress-mini-fill {
+        .movie-card.downloading .download-bar,
+        .movie-card.playable .download-bar {
+            display: flex;
+        }
+        .movie-card .download-bar .dl-progress-track {
+            width: 100%;
+            height: 10px;
+            background: #333;
+            border-radius: 5px;
+            overflow: hidden;
+            position: relative;
+        }
+        .movie-card .download-bar .dl-progress-track .dl-progress-fill {
             height: 100%;
-            background: #e50914;
+            background: linear-gradient(90deg, #e50914, #ff6b6b);
+            border-radius: 5px;
             transition: width 0.3s ease;
             width: 0%;
         }
-        .movie-card .dl-progress-mini .dl-progress-mini-text {
+        .movie-card .download-bar .dl-progress-track .dl-percent-text {
             position: absolute;
-            right: 4px;
-            top: -18px;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
             font-size: 10px;
-            color: #e50914;
             font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 4px #000;
+        }
+        .movie-card .download-bar .dl-buttons {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .movie-card .download-bar .dl-buttons .dl-cancel {
+            background: #444;
+            border: none;
+            color: #fff;
+            padding: 4px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .movie-card .download-bar .dl-buttons .dl-cancel:hover {
+            background: #e50914;
+        }
+        .movie-card .download-bar .dl-buttons .dl-play {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 4px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+            visibility: visible;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        .movie-card .download-bar .dl-buttons .dl-play:hover {
+            background: #ff3333;
+        }
+        .movie-card .download-bar .dl-buttons .dl-play.ready {
+            opacity: 1;
+            pointer-events: auto;
         }
         .movie-card .poster-container {
             position: relative;
@@ -367,104 +420,8 @@
             transform: translate(-50%, -50%);
             font-size: 60px;
         }
-        .movie-card.downloading {
-            pointer-events: none;
-        }
-        .movie-card.downloading .download-overlay {
-            display: flex;
-        }
-        .movie-card.playable .play-btn {
-            display: flex;
-        }
         .play-btn {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 50px;
-            height: 50px;
-            background: rgba(229, 9, 20, 0.9);
-            border-radius: 50%;
             display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 25;
-            transition: transform 0.2s, background 0.2s;
-            pointer-events: auto;
-        }
-        .play-btn::after {
-            content: '';
-            display: block;
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 10px 0 10px 18px;
-            border-color: transparent transparent transparent #fff;
-            margin-left: 4px;
-        }
-        .movie-card:hover .play-btn {
-            transform: translate(-50%, -50%) scale(1.15);
-            background: rgba(229, 9, 20, 1);
-        }
-        .download-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.92);
-            z-index: 20;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 12px;
-            gap: 8px;
-            pointer-events: auto;
-        }
-        .download-overlay .dl-title {
-            font-size: 11px;
-            font-weight: bold;
-            text-align: center;
-            line-height: 1.3;
-            max-height: 30px;
-            overflow: hidden;
-        }
-        .download-overlay .dl-progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #333;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        .download-overlay .dl-progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #e50914, #ff6b6b);
-            border-radius: 3px;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-        .download-overlay .dl-percent {
-            font-size: 13px;
-            font-weight: bold;
-            color: #e50914;
-        }
-        .download-overlay .dl-size {
-            font-size: 10px;
-            color: #888;
-        }
-        .download-overlay .dl-cancel {
-            background: #444;
-            border: none;
-            color: #fff;
-            padding: 4px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 11px;
-            pointer-events: auto;
-        }
-        .download-overlay .dl-cancel:hover {
-            background: #e50914;
         }
         .status-bar {
             position: fixed;
@@ -1116,14 +1073,15 @@
                     <div class="poster-container">
                         ${posterHtml}
                         <div class="description">${overview}</div>
-                        <div class="play-btn"></div>
-                        <div class="dl-progress-mini"><div class="dl-progress-mini-fill"></div><span class="dl-progress-mini-text"></span></div>
-                        <div class="download-overlay">
-                            <div class="dl-title">${title}</div>
-                            <div class="dl-progress-bar"><div class="dl-progress-fill"></div></div>
-                            <div class="dl-percent">0%</div>
-                            <div class="dl-size">0 B / 0 B</div>
+                    </div>
+                    <div class="download-bar">
+                        <div class="dl-progress-track">
+                            <div class="dl-progress-fill"></div>
+                            <span class="dl-percent-text">0%</span>
+                        </div>
+                        <div class="dl-buttons">
                             <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
+                            <button class="dl-play" onclick="event.stopPropagation(); startPlaybackFromCard(event)">Play</button>
                         </div>
                     </div>
                     <div class="info">
@@ -1292,22 +1250,31 @@
             try {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
-                
+
+                // Reset all download bars
                 document.querySelectorAll('.movie-card').forEach(card => {
-                    const miniFill = card.querySelector('.dl-progress-mini-fill');
-                    const miniText = card.querySelector('.dl-progress-mini-text');
-                    if (miniFill) miniFill.style.width = '0%';
-                    if (miniText) miniText.textContent = '';
+                    const fill = card.querySelector('.dl-progress-fill');
+                    const text = card.querySelector('.dl-percent-text');
+                    if (fill) fill.style.width = '0%';
+                    if (text) text.textContent = '';
                 });
-                
+
                 if (data.status === 'downloading' && data.info_hash) {
                     const activeCardEl = document.querySelector(`.movie-card[data-info-hash="${data.info_hash}"]`);
-                    if (activeCardEl) {
-                        const percent = data.percent || 0;
-                        const miniFill = activeCardEl.querySelector('.dl-progress-mini-fill');
-                        const miniText = activeCardEl.querySelector('.dl-progress-mini-text');
-                        if (miniFill) miniFill.style.width = percent + '%';
-                        if (miniText) miniText.textContent = percent + '%';
+                    if (!activeCardEl) {
+                        // Try with dataset
+                        const cards = document.querySelectorAll('.movie-card');
+                        for (const c of cards) {
+                            if (c.dataset.infoHash === data.info_hash) {
+                                // Found it
+                                const percent = data.percent || 0;
+                                const fill = c.querySelector('.dl-progress-fill');
+                                const text = c.querySelector('.dl-percent-text');
+                                if (fill) fill.style.width = percent + '%';
+                                if (text) text.textContent = percent + '%';
+                                break;
+                            }
+                        }
                     }
                 }
             } catch (e) {}
@@ -1491,25 +1458,25 @@ async function playMovie(movie, source, card) {
                 }
                 return;
             }
-            
+
             const resp = await fetch('/api/status');
             const data = await resp.json();
-            
+
             console.log('Status:', data);
-            
+
             if (data.info_hash && expectedInfoHash && data.info_hash !== expectedInfoHash) {
                 return;
             }
-            
-            const overlay = card.querySelector('.download-overlay');
+
             const progressFill = card.querySelector('.dl-progress-fill');
-            const percentEl = card.querySelector('.dl-percent');
-            const sizeEl = card.querySelector('.dl-size');
-            
+            const percentText = card.querySelector('.dl-percent-text');
+            const dlPlay = card.querySelector('.dl-play');
+
             if (data.status === 'ready') {
                 console.log('Ready to play, downloaded:', data.downloaded_size || 'unknown');
 
                 card.classList.add('playable');
+                dlPlay.classList.add('ready');
 
                 if (downloadPollInterval) {
                     clearInterval(downloadPollInterval);
@@ -1518,34 +1485,22 @@ async function playMovie(movie, source, card) {
 
                 if (!isStreaming) {
                     isStreaming = true;
-                    startPlayback(info_hash);
+                    startPlayback(expectedInfoHash);
                 }
             } else if (data.status === 'error') {
                 if (downloadPollInterval) {
                     clearInterval(downloadPollInterval);
                     downloadPollInterval = null;
                 }
-                percentEl.textContent = 'Error';
+                percentText.textContent = 'Error';
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
-                const totalSize = parseInt(card.dataset.fileSize, 10) || 100 * 1024 * 1024;
                 const isValid = data.is_valid;
                 const percent = data.percent || 0;
-                
-                percentEl.textContent = percent + '%';
+
+                percentText.textContent = percent + '%';
                 progressFill.style.width = percent + '%';
-                if (totalSize > 0) {
-                    sizeEl.textContent = `${formatSize(downloaded)} / ${formatSize(totalSize)}`;
-                } else {
-                    sizeEl.textContent = formatSize(downloaded);
-                }
-                
-                // Update mini progress bar on card
-                const miniFill = card.querySelector('.dl-progress-mini-fill');
-                const miniText = card.querySelector('.dl-progress-mini-text');
-                if (miniFill) miniFill.style.width = percent + '%';
-                if (miniText) miniText.textContent = percent + '%';
-                
+
                 // Check playable status via backend API (100MB + header ready)
                 if (!isStreaming) {
                     const playableResp = await fetch('/api/download/playable');
@@ -1553,11 +1508,21 @@ async function playMovie(movie, source, card) {
                     if (playableData.playable && isValid) {
                         card.classList.add('playable');
                         isStreaming = true;
+                        dlPlay.classList.add('ready');
                         startPlayback(expectedInfoHash);
                     }
                 }
             } else {
-                percentEl.textContent = 'Starting...';
+                percentText.textContent = 'Starting...';
+            }
+        }
+
+        async function startPlaybackFromCard(event) {
+            const card = event.target.closest('.movie-card');
+            if (card && card.dataset.infoHash) {
+                card.classList.add('playable');
+                card.querySelector('.dl-play').classList.add('ready');
+                startPlayback(card.dataset.infoHash);
             }
         }
         
@@ -1593,15 +1558,21 @@ async function playMovie(movie, source, card) {
             try {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
-                
-                // Remove playable class from all cards first
-                document.querySelectorAll('.movie-card.playable').forEach(c => c.classList.remove('playable'));
-                
+
+                // Remove playable class and play button from all cards first
+                document.querySelectorAll('.movie-card.playable').forEach(c => {
+                    c.classList.remove('playable');
+                    const btn = c.querySelector('.dl-play');
+                    if (btn) btn.classList.remove('ready');
+                });
+
                 if ((data.status === 'ready' || data.status === 'downloading') && data.info_hash) {
                     const cards = document.querySelectorAll('.movie-card');
                     cards.forEach(card => {
                         if (card.dataset.infoHash === data.info_hash) {
                             card.classList.add('playable');
+                            const btn = card.querySelector('.dl-play');
+                            if (btn) btn.classList.add('ready');
                         }
                     });
                 }
@@ -1619,6 +1590,9 @@ async function playMovie(movie, source, card) {
             }
             if (activeCard) {
                 activeCard.classList.remove('downloading');
+                activeCard.classList.remove('playable');
+                const btn = activeCard.querySelector('.dl-play');
+                if (btn) btn.classList.remove('ready');
                 activeCard = null;
             }
             statusBar.classList.remove('active');
