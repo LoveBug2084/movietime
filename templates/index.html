@@ -1170,7 +1170,7 @@
                     const statusData = await statusResp.json();
                     // Allow play if: ready with file exists (don't block on info_hash comparison)
                     if (statusData.status === 'ready' && statusData.file) {
-                        startPlayback();
+                        startPlayback(card.dataset.infoHash);
                         return;
                     }
                     // Allow play if no active download OR same torrent
@@ -1395,7 +1395,7 @@ async function playMovie(movie, source, card) {
             // If we have a matching info_hash and status is ready (or no active download but we have a file path), play directly
             const statusInfoHash = statusData.info_hash || '';
             if (cardInfoHash && statusInfoHash === cardInfoHash && (statusData.status === 'ready' || (statusData.status === 'idle' && statusData.file))) {
-                startPlayback();
+                startPlayback(cardInfoHash);
                 return;
             }
             
@@ -1445,7 +1445,7 @@ async function playMovie(movie, source, card) {
                 card.dataset.infoHash = info_hash;
                 
                 if (statusData.status === 'ready') {
-                    startPlayback();
+                    startPlayback(info_hash);
                 } else {
                     downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
                 }
@@ -1517,7 +1517,7 @@ async function playMovie(movie, source, card) {
                         clearInterval(downloadPollInterval);
                         downloadPollInterval = null;
                     }
-                    startPlayback();
+                    startPlayback(info_hash);
                 }
             } else if (data.status === 'error') {
                 if (downloadPollInterval) {
@@ -1556,7 +1556,7 @@ async function playMovie(movie, source, card) {
                             clearInterval(downloadPollInterval);
                             downloadPollInterval = null;
                         }
-                        startPlayback();
+                        startPlayback(expectedInfoHash);
                     }
                 }
             } else {
@@ -1571,10 +1571,14 @@ async function playMovie(movie, source, card) {
             return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
         }
         
-        async function startPlayback() {
+        async function startPlayback(infoHash) {
             await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback called'}) });
             try {
-                const resp = await fetch('/api/play', { method: 'POST' });
+                const resp = await fetch('/api/play', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({info_hash: infoHash})
+                });
                 const data = await resp.json();
                 await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback resp: ' + resp.status + ' ' + JSON.stringify(data)}) });
                 

@@ -1021,7 +1021,9 @@ def download_torrent(magnet_link, info_hash, name):
     print(f"Starting libtorrent download: {magnet_link[:80]}...")
 
     atp = lt.parse_magnet_uri(magnet_link)
-    atp.save_path = os.path.abspath(DOWNLOAD_DIR)
+    hash_dir = os.path.join(DOWNLOAD_DIR, info_hash)
+    atp.save_path = os.path.abspath(hash_dir)
+    os.makedirs(atp.save_path, exist_ok=True)
     atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
     atp.flags |= lt.torrent_flags.sequential_download
 
@@ -1088,24 +1090,26 @@ def track_download_progress():
 # Start the tracking thread
 threading.Thread(target=track_download_progress, daemon=True).start()
 
-def find_video_file():
-    """Find the most recent video file in download directory (including subdirectories)"""
-    video_exts = [".mp4", ".mkv", ".avi", ".webm", ".mov"]
-    newest_file = None
-    newest_time = 0
+def find_video_file(info_hash):
+    """Find the first video file in the hash-specific download directory"""
+    if not info_hash:
+        return None
 
-    for root, dirs, files in os.walk(DOWNLOAD_DIR):
+    hash_dir = os.path.join(DOWNLOAD_DIR, info_hash)
+    if not os.path.isdir(hash_dir):
+        return None
+
+    video_exts = [".mp4", ".mkv", ".avi", ".webm", ".mov"]
+
+    for root, dirs, files in os.walk(hash_dir):
         for f in files:
             ext = os.path.splitext(f)[1].lower()
             if ext in video_exts:
                 full_path = os.path.join(root, f)
                 if os.path.getsize(full_path) > 0:
-                    mtime = os.path.getmtime(full_path)
-                    if mtime > newest_time:
-                        newest_time = mtime
-                        newest_file = full_path
+                    return full_path
 
-    return newest_file
+    return None
 
 def is_valid_video_file(file_path):
     """Check if file has a valid video header"""
@@ -1594,8 +1598,8 @@ def api_status():
             video_file = stored_file
     
     # Fallback to searching for video files
-    if not video_file:
-        video_file = find_video_file()
+    if not video_file and info_hash:
+        video_file = find_video_file(info_hash)
 
     with download_lock:
         handle = current_download["handle"]
@@ -1611,8 +1615,8 @@ def api_status():
         is_complete = state in (lt.torrent_status.seeding, lt.torrent_status.finished)
 
         # Update video_file reference from libtorrent
-        if not video_file and is_complete:
-            video_file = find_video_file()
+        if not video_file and is_complete and info_hash:
+            video_file = find_video_file(info_hash)
             if video_file:
                 with download_lock:
                     current_download["video_file"] = video_file
@@ -1703,8 +1707,14 @@ def is_download_active():
 
 @app.route("/api/play", methods=["POST"])
 def api_play():
-    """Start playing the current download with mpv"""
-    video_file = find_video_file()
+    """Start playing a specific download with mpv"""
+    data = request.json or {}
+    info_hash = data.get("info_hash")
+
+    if not info_hash:
+        return jsonify({"error": "info_hash required"}), 400
+
+    video_file = find_video_file(info_hash)
     log_debug(f"[DEBUG play] video_file: {video_file}")
 
     if not video_file or not os.path.exists(video_file):
