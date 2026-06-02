@@ -2,14 +2,17 @@
 import os
 os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
 
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 def load_env_file():
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmdb")
+    env_path = os.path.join(SCRIPT_DIR, ".tmdb")
     if os.path.exists(env_path):
         with open(env_path) as f:
             return f.read().strip()
     return None
 
 TMDB_API_KEY = load_env_file()
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-gpu-compositing"
 
 import asyncio
@@ -33,9 +36,9 @@ from PyQt5.QtNetwork import QLocalServer
 # libtorrent for sequential torrent downloads
 import libtorrent as lt
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=os.path.join(SCRIPT_DIR, "templates"))
 
-DEBUG_LOG = "debug.log"
+DEBUG_LOG = os.path.join(SCRIPT_DIR, "debug.log")
 DEBUG = "--debug" in sys.argv or "-debug" in sys.argv
 HELP = "--help" in sys.argv or "-h" in sys.argv
 
@@ -69,25 +72,15 @@ def add_no_cache(response):
     response.headers['Expires'] = '0'
     return response
 
-DOWNLOAD_DIR = "download"
+DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "download")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # Cache file for popular movies
-CACHE_FILE = "database/movies_active.json"
-BUILDING_FILE = "database/movies_building.json"
-NEW_MOVIES_ACTIVE = "database/new_movies_active.json"
-NEW_MOVIES_BUILDING = "database/new_movies_building.json"
-os.makedirs("database", exist_ok=True)
-
-def load_env_file():
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmdb")
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            return f.read().strip()
-    return None
-
-TMDB_API_KEY = load_env_file()
-TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w200"
+CACHE_FILE = os.path.join(SCRIPT_DIR, "database/movies_active.json")
+BUILDING_FILE = os.path.join(SCRIPT_DIR, "database/movies_building.json")
+NEW_MOVIES_ACTIVE = os.path.join(SCRIPT_DIR, "database/new_movies_active.json")
+NEW_MOVIES_BUILDING = os.path.join(SCRIPT_DIR, "database/new_movies_building.json")
+os.makedirs(os.path.join(SCRIPT_DIR, "database"), exist_ok=True)
 
 CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
 
@@ -99,7 +92,7 @@ GENRE_NAMES = {0: "Popular", 28: "Action", 12: "Adventure", 16: "Animation", 35:
 cache_progress = {"pages_fetched": 0, "total_pages": 0, "status": "idle"}
 
 # Sync state for incremental background sync
-SYNC_STATE_FILE = "database/sync_state.json"
+SYNC_STATE_FILE = os.path.join(SCRIPT_DIR, "database/sync_state.json")
 sync_state = {"genre_index": 0, "last_updated": None, "status": "idle", "current_page": 1}
 sync_stop_event = threading.Event()
 sync_thread = None
