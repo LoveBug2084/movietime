@@ -1212,7 +1212,8 @@
                                 if (downloaded < HEADER_MIN_SIZE) {
                                     displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
                                 } else {
-                                    displayPercent = data.percent || 0;
+                                    const fileSize = parseInt(c.dataset.fileSize) || 1;
+                                    displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                                 }
                                 const fill = c.querySelector('.dl-progress-fill');
                                 const text = c.querySelector('.dl-percent-text');
@@ -1456,8 +1457,9 @@ async function playMovie(movie, source, card) {
                     displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
                     progressFill.classList.add('blue');
                 } else {
-                    // Stage 2: Show actual download progress
-                    displayPercent = data.percent || 0;
+                    // Stage 2: Show actual download progress relative to video file size
+                    const fileSize = parseInt(card.dataset.fileSize) || 1;
+                    displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                     progressFill.classList.remove('blue');
                 }
 
