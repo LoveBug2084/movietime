@@ -44,12 +44,6 @@
             flex-wrap: nowrap;
         }
         .search-box input {
-            min-width: 200px;
-        }
-        .search-box input {
-            min-width: 200px;
-        }
-        .search-box input {
             flex: 1;
             padding: 15px 20px;
             font-size: 18px;
@@ -316,7 +310,7 @@
         }
         .movie-card .download-bar .dl-progress-track .dl-progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #e50914, #ff6b6b);
+            background: #ff9900;
             border-radius: 5px;
             transition: width 0.3s ease;
             width: 0%;
@@ -423,64 +417,7 @@
             transform: translate(-50%, -50%);
             font-size: 60px;
         }
-        .play-btn {
-            display: none;
-        }
-        .status-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.9);
-            padding: 20px 30px;
-            border-radius: 15px;
-            display: none;
-            z-index: 300;
-            min-width: 300px;
-            text-align: center;
-        }
-        .status-bar.active {
-            display: block;
-        }
-        .status-bar .status-text {
-            color: #fff;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-        .status-bar .progress-container {
-            background: #333;
-            border-radius: 10px;
-            height: 8px;
-            overflow: hidden;
-            margin-bottom: 8px;
-        }
-        .status-bar .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #e50914, #ff6b6b);
-            border-radius: 10px;
-            transition: width 0.3s ease;
-            width: 0%;
-        }
-        .status-bar .progress-text {
-            color: #888;
-            font-size: 12px;
-        }
-        .spinner {
-            width: 20px;
-            height: 20px;
-            border: 3px solid #333;
-            border-top: 3px solid #e50914;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-            margin-right: 10px;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+        </style>
     <script src="/qwebchannel.js"></script>
 </head>
 <body>
@@ -695,8 +632,6 @@
         
         const grid = document.getElementById('grid');
         const searchInput = document.getElementById('search');
-        const statusBar = document.getElementById('status');
-        const statusText = document.getElementById('status-text');
         const pageInfo = document.getElementById('page-info');
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
@@ -1623,7 +1558,6 @@ async function playMovie(movie, source, card) {
                 if (btn) btn.classList.remove('ready');
                 activeCard = null;
             }
-            statusBar.classList.remove('active');
             isStreaming = false;
         }
         
