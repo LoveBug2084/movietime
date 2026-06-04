@@ -981,9 +981,6 @@ current_download = {
     "video_file": None,
 }
 
-# Persistent download progress tracker
-download_progress = {}
-
 # mpv player state
 mpv_player = {
     "process": None,
@@ -1029,14 +1026,6 @@ def download_torrent(magnet_link, info_hash, name):
         current_download["name"] = name
         current_download["video_file"] = None
 
-    download_progress[info_hash] = {
-        "name": name,
-        "total_size": 0,
-        "downloaded": 0,
-        "percent": 0,
-        "state": "downloading",
-    }
-
     # For magnet links, metadata must be downloaded first.
     # Poll until metadata arrives.
     def wait_for_metadata():
@@ -1049,39 +1038,6 @@ def download_torrent(magnet_link, info_hash, name):
         print(f"Warning: metadata not received within 60s for: {name}")
 
     threading.Thread(target=wait_for_metadata, daemon=True).start()
-
-def track_download_progress():
-    """Background thread that updates download_progress dict"""
-    while True:
-        time.sleep(2)
-        with download_lock:
-            handle = current_download["handle"]
-            if handle and handle.is_valid():
-                status = handle.status()
-                total_size = status.total_wanted
-                downloaded = status.total_wanted_done
-                info_hash = current_download["info_hash"]
-                name = current_download["name"] or "Unknown"
-
-                if total_size > 0:
-                    download_progress[info_hash] = {
-                        "name": name,
-                        "total_size": total_size,
-                        "downloaded": downloaded,
-                        "percent": int((downloaded / total_size) * 100),
-                        "state": "downloading",
-                    }
-                else:
-                    download_progress[info_hash] = {
-                        "name": name,
-                        "total_size": total_size,
-                        "downloaded": downloaded,
-                        "percent": 0,
-                        "state": "downloading",
-                    }
-
-# Start the tracking thread
-threading.Thread(target=track_download_progress, daemon=True).start()
 
 def find_video_file(info_hash):
     """Find the first video file in the hash-specific download directory"""
@@ -1599,8 +1555,6 @@ def api_status():
 
     if handle and handle.is_valid():
         status = handle.status()
-        progress = status.progress  # 0.0 to 1.0
-        total_size = status.total_wanted
         downloaded = status.total_wanted_done
         state = status.state
 
@@ -1630,20 +1584,16 @@ def api_status():
             return jsonify({
                 "status": "downloading",
                 "downloaded_size": downloaded,
-                "total_size": total_size,
                 "is_valid": valid,
                 "complete": is_complete,
-                "percent": int(progress * 100),
                 "info_hash": current_download.get("info_hash"),
             })
         else:
             return jsonify({
                 "status": "downloading",
                 "downloaded_size": downloaded,
-                "total_size": total_size,
                 "is_valid": False,
                 "complete": is_complete,
-                "percent": int(progress * 100),
                 "info_hash": current_download.get("info_hash"),
             })
 
@@ -1777,12 +1727,6 @@ def api_play_stop():
             mpv_player["process"] = None
             mpv_player["playing"] = False
     return jsonify({"status": "stopped"})
-
-@app.route("/api/downloads")
-def api_downloads():
-    """Get all known download progress states"""
-    with download_lock:
-        return jsonify(download_progress)
 
 @app.route("/api/open-downloads", methods=["POST"])
 def api_open_downloads():

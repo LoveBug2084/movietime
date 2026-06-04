@@ -282,9 +282,9 @@
             color: #888;
             font-size: 11px;
         }
-        .movie-card .seeders-loading {
+        .movie-card .torrent-status {
             font-size: 12px;
-            color: #888;
+            color: #e50914;
             margin-top: 5px;
         }
         .movie-card .download-bar {
@@ -417,10 +417,30 @@
             transform: translate(-50%, -50%);
             font-size: 60px;
         }
+        .notification {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #e50914;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 400;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .notification.visible {
+            opacity: 1;
+        }
         </style>
     <script src="/qwebchannel.js"></script>
 </head>
 <body>
+    <div id="notification" class="notification"></div>
     <div class="header">
         <div class="search-box">
             <input type="text" id="search" placeholder="Search movies..." autocomplete="off">
@@ -632,6 +652,7 @@
         
         const grid = document.getElementById('grid');
         const searchInput = document.getElementById('search');
+        const notification = document.getElementById('notification');
         const pageInfo = document.getElementById('page-info');
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
@@ -643,7 +664,13 @@
         let currentYear = '';
         let currentCategory = 'all';
         let activeCard = null;
-        
+
+        function showNotification(msg, isError = false) {
+            notification.textContent = msg;
+            notification.classList.add('visible');
+            setTimeout(() => notification.classList.remove('visible'), 10000);
+        }
+
         // Set up QWebChannel to get pyqt object
         if (typeof QWebChannel !== 'undefined') {
             new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -1030,7 +1057,7 @@
                         <div class="seeders">${seeders}</div>
                         ${resolutionHtml}
                         <div class="resolution-list"></div>
-                        <div class="seeders-loading"></div>
+                        <div class="torrent-status"></div>
                     </div>
                 `;
                 
@@ -1099,16 +1126,13 @@
                     return;
                 }
                 
-                const loadingEl = card.querySelector('.seeders-loading');
-                if (loadingEl) {
-                    loadingEl.textContent = '...';
-                }
-                
+const loadingEl = card.querySelector('.torrent-status');
+
                 pendingFetches[title] = true;
                 fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
                     .then(resp => {
                         if (!resp.ok) {
-                            if (loadingEl) loadingEl.textContent = '';
+                            if (loadingEl) loadingEl.textContent = 'No torrents';
                             pendingFetches[title] = false;
                             return;
                         }
@@ -1120,12 +1144,12 @@
                             torrentCache[title] = data;
                             updateCardWithTorrent(card, data);
                         } else {
-                            if (loadingEl) loadingEl.textContent = '';
+                            if (loadingEl) loadingEl.textContent = 'No torrents';
                         }
                     })
                     .catch(() => {
                         pendingFetches[title] = false;
-                        if (loadingEl) loadingEl.textContent = '';
+                        if (loadingEl) loadingEl.textContent = 'No torrents';
                     });
             }, 300);
         }
@@ -1138,7 +1162,7 @@
         }
         
         function updateCardWithTorrent(card, torrents) {
-            const loadingEl = card.querySelector('.seeders-loading');
+            const loadingEl = card.querySelector('.torrent-status');
             if (loadingEl) loadingEl.textContent = '';
             
             const listEl = card.querySelector('.resolution-list');
@@ -1334,13 +1358,11 @@ async function playMovie(movie, source, card) {
                 const torrentResp = await fetch(`/api/torrent?q=${encodeURIComponent(query)}&category=${currentCategory}&year=${encodeURIComponent(year)}`);
                 
                 if (!torrentResp.ok) {
-                    alert('No torrent found for this movie');
                     return;
                 }
-                
+
                 const torrents = await torrentResp.json();
                 if (torrents.length === 0) {
-                    alert('No torrent found for this movie');
                     return;
                 }
                 
@@ -1510,7 +1532,7 @@ async function playMovie(movie, source, card) {
                 await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback resp: ' + resp.status + ' ' + JSON.stringify(data)}) });
                 
                 if (!resp.ok) {
-                    alert('Playback error: ' + data.error);
+                    showNotification(data.error, true);
                 } else {
                     checkPlayable();
                 }
