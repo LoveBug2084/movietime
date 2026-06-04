@@ -1449,6 +1449,9 @@ async function playMovie(movie, source, card) {
             const dlPlay = card.querySelector('.dl-play');
 
             if (data.status === 'ready') {
+                progressFill.style.width = '100%';
+                percentText.textContent = '100%';
+
                 console.log('Ready to play, downloaded:', data.downloaded_size || 'unknown');
 
                 card.classList.add('playable');
