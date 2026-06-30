@@ -639,7 +639,10 @@
         let currentSearchQuery = '';
         let currentTotalPages = 1;
         let currentSearchId = null;
+        let currentSearchRequestId = 0;
         let searchResultsCache = [];
+
+
         let searchPollInterval = null;
         let torrentCache = {};
         let hoverTimeouts = {};
@@ -760,6 +763,7 @@
         }
         
         async function loadAll(page = 1) {
+            currentSearchRequestId++;
             cancelCurrentSearch();
             currentSource = 'popular';
             currentSearchQuery = '';
@@ -819,121 +823,9 @@
             updatePagination(currentTotalPages);
         }
         
-// Auto-refresh: poll every 5 seconds
-        setInterval(async () => {
-            try {
-                // When in search mode, re-run local search to get updated results
-                if (currentSource === 'search' && currentSearchQuery) {
-                    const query = currentSearchQuery;
-                    // Use local-only search (no TMDb API call)
-                    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}&local=1`);
-                    const data = await resp.json();
-                    if (data.combined) {
-                        // Only update UI if results changed (compare by length)
-                        const newCount = data.combined.length;
-                        const oldCount = searchResultsCache.length;
-                        if (newCount !== oldCount) {
-                            searchResultsCache = data.combined;
-                            // Re-apply filters
-                            let filteredResults = searchResultsCache;
-                            if (currentGenre) {
-                                const genreId = parseInt(currentGenre);
-                                filteredResults = searchResultsCache.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
-                            }
-                            if (currentRating) {
-                                if (currentRating === 'none') {
-                                    filteredResults = filteredResults.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
-                                } else {
-                                    const minRating = parseFloat(currentRating);
-                                    filteredResults = filteredResults.filter(m => m.rating && m.rating >= minRating);
-                                }
-                            }
-                            if (currentYear) {
-                                const year = parseInt(currentYear);
-                                filteredResults = filteredResults.filter(m => m.year && parseInt(m.year) === year);
-                            }
-                            const MOVIES_PER_PAGE = 100;
-                            currentTotalPages = Math.max(1, Math.ceil(filteredResults.length / MOVIES_PER_PAGE));
-                            currentPage = Math.min(currentPage, currentTotalPages);
-                            const startIdx = (currentPage - 1) * MOVIES_PER_PAGE;
-                            const endIdx = startIdx + MOVIES_PER_PAGE;
-                            const pageMovies = filteredResults.slice(startIdx, endIdx);
-                            currentMovies = pageMovies;
-                            renderMovies(pageMovies, 'search');
-                            document.getElementById('movie-count').textContent = filteredResults.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
-                            updatePagination(currentTotalPages);
-                        }
-                    }
-                    return;
-                }
-                
-                const resp = await fetch('/api/movies/all');
-                const data = await resp.json();
-                const totalMovies = data.total || 0;
-                
-                // Always update total when viewing all movies (no filters active)
-                if (!currentGenre && !currentSearchQuery && !currentRating && !currentYear) {
-                    document.getElementById('movie-count').textContent = totalMovies.toLocaleString() + ' Movies';
-                    const MOVIES_PER_PAGE = 100;
-                    currentTotalPages = Math.max(1, Math.ceil(totalMovies / MOVIES_PER_PAGE));
-                    updatePagination(currentTotalPages);
-                }
-                
-                // Also append new movies if any
-                if (data.incremental && data.movies && data.movies.length > 0) {
-                    displayMovies = displayMovies.concat(data.movies);
-                    popularLoaded = true;
-                    totalDatabaseMovies = displayMovies.length;
-                } else if (!data.incremental && data.movies && data.movies.length > 0) {
-                    displayMovies = data.movies;
-                    popularLoaded = true;
-                    totalDatabaseMovies = displayMovies.length;
-                }
-                
-                // Only update UI if totals have changed
-                const totalsChanged = totalDatabaseMovies !== lastTotalMovies;
-                lastTotalMovies = totalDatabaseMovies;
-                
-                if (!totalsChanged) {
-                    return;
-                }
-                
-                // Re-apply filters to updated displayMovies
-                let filteredMovies = displayMovies;
-                if (currentGenre) {
-                    const genreId = parseInt(currentGenre);
-                    filteredMovies = displayMovies.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
-                }
-                if (currentRating) {
-                    if (currentRating === 'none') {
-                        filteredMovies = filteredMovies.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
-                    } else {
-                        const minRating = parseFloat(currentRating);
-                        filteredMovies = filteredMovies.filter(m => m.rating && m.rating >= minRating);
-                    }
-                }
-                if (currentYear) {
-                    const year = parseInt(currentYear);
-                    filteredMovies = filteredMovies.filter(m => m.year && parseInt(m.year) === year);
-                }
-                
-                // Update movie count with filter info
-                if (currentGenre || currentSearchQuery || currentRating || currentYear) {
-                    document.getElementById('movie-count').textContent = filteredMovies.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
-                }
-                
-                // Re-render with filtered results
-                const MOVIES_PER_PAGE = 100;
-                currentTotalPages = Math.max(1, Math.ceil(filteredMovies.length / MOVIES_PER_PAGE));
-                const startIdx = (currentPage - 1) * MOVIES_PER_PAGE;
-                const endIdx = startIdx + MOVIES_PER_PAGE;
-                currentMovies = filteredMovies.slice(startIdx, endIdx);
-                renderMovies(currentMovies, 'popular');
-                updatePagination(currentTotalPages);
-            } catch (e) {
-                // Silent fail - don't disrupt user
-            }
-        }, 5000);
+        
+        // Auto-refresh: removed redundant polling to prevent flickering and slowness
+
         
         function updatePagination(totalPages) {
             document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
@@ -1673,55 +1565,81 @@ async function playMovie(movie, source, card) {
             currentSearchQuery = query;
             currentSource = 'search';
             
-            fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}`)
+            // 1. Instant Local Search
+            const queryLower = query.toLowerCase();
+            const localMatches = displayMovies.filter(m => 
+                (m.title || '').toLowerCase().includes(queryLower)
+            );
+            
+            // Apply current filters to local matches
+            const filteredLocal = sortAndFilterMovies(localMatches, query);
+            
+            const MOVIES_PER_PAGE = 100;
+            const pageLocal = filteredLocal.slice(0, MOVIES_PER_PAGE);
+            
+            // Render local results immediately
+            renderMovies(pageLocal, 'search');
+            
+            const totalLocalPages = Math.max(1, Math.ceil(filteredLocal.length / MOVIES_PER_PAGE));
+            currentPage = 1;
+            updatePagination(totalLocalPages);
+            document.getElementById('movie-count').textContent = filteredLocal.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
+            
+            // 2. Background External Search
+            const requestId = ++currentSearchRequestId;
+            
+            fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}&external_only=1`)
                 .then(resp => resp.json())
                 .then(data => {
-                    const results = data.results || data;
-                    console.log('Search source:', data.sources, 'results:', results.length);
+                    if (requestId !== currentSearchRequestId) return;
                     
-                    // Store all results for pagination
-                    if (data.combined && data.combined.length > 0) {
-                        searchResultsCache = data.combined;
-                    } else {
-                        searchResultsCache = results;
-                    }
+                    const externalResults = data.combined || data.results || [];
                     
-                    // Apply genre filter if selected
-                    let filteredResults = searchResultsCache;
-                    if (currentGenre) {
-                        const genreId = parseInt(currentGenre);
-                        filteredResults = searchResultsCache.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
-                    }
+                    // Merge local and external results
+                    // Use a map to deduplicate by normalized title
+                    const mergedMap = new Map();
                     
-                    // Apply rating filter if selected
-                    if (currentRating) {
-                        if (currentRating === 'none') {
-                            filteredResults = filteredResults.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
+                    // Add local matches first
+                    filteredLocal.forEach(m => {
+                        const normalized = (m.title || '').toLowerCase().trim();
+                        if (normalized) mergedMap.set(normalized, { ...m, search_source: 'cache' });
+                    });
+                    
+                    // Add/Upgrade with external results
+                    externalResults.forEach(m => {
+                        const title = m.title || m.name || '';
+                        const normalized = title.toLowerCase().trim();
+                        if (!normalized) return;
+                        
+                        if (mergedMap.has(normalized)) {
+                            // Upgrade local movie with external torrent info
+                            const local = mergedMap.get(normalized);
+                            mergedMap.set(normalized, {
+                                ...local,
+                                info_hash: m.info_hash || local.info_hash,
+                                seeders: m.seeders || local.seeders,
+                                resolution: m.resolution || local.resolution,
+                                magnet: m.magnet || local.magnet
+                            });
                         } else {
-                            const minRating = parseFloat(currentRating);
-                            filteredResults = filteredResults.filter(m => m.rating && m.rating >= minRating);
+                            // Add as new discovery
+                            mergedMap.set(normalized, { ...m, search_source: 'external' });
                         }
-                    }
+                    });
                     
-                    // Apply year filter if selected
-                    if (currentYear) {
-                        const year = parseInt(currentYear);
-                        filteredResults = filteredResults.filter(m => m.year && parseInt(m.year) === year);
-                    }
+                    const finalResults = Array.from(mergedMap.values());
                     
-                    const MOVIES_PER_PAGE = 100;
-                    currentTotalPages = Math.max(1, Math.ceil(filteredResults.length / MOVIES_PER_PAGE));
-                    currentPage = 1;
+                    // Update cache for pagination
+                    searchResultsCache = finalResults;
                     
-                    const pageResults = filteredResults.slice(0, MOVIES_PER_PAGE);
+                    const totalPages = Math.max(1, Math.ceil(finalResults.length / MOVIES_PER_PAGE));
+                    currentTotalPages = totalPages;
+                    
+                    const pageResults = finalResults.slice(0, MOVIES_PER_PAGE);
                     renderMovies(pageResults, 'search');
-                    updatePagination(currentTotalPages);
+                    updatePagination(totalPages);
                     
-                    // Update movie count
-                    if (data.total_database) {
-                        totalDatabaseMovies = data.total_database;
-                    }
-                    document.getElementById('movie-count').textContent = filteredResults.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
+                    document.getElementById('movie-count').textContent = finalResults.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
                     
                     if (data.streaming && data.search_id) {
                         currentSearchId = data.search_id;
@@ -1739,14 +1657,12 @@ async function playMovie(movie, source, card) {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
                 if (query.length < 2) {
-                    if (query.length === 0) {
-                        cancelCurrentSearch();
-                        loadAll(1);
-                    }
+                    cancelCurrentSearch();
+                    loadAll(1);
                     return;
                 }
                 performSearch(query);
-}, 1000);
+        }, 400);
         });
         
         // Load all movies on start

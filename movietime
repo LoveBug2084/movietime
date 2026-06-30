@@ -673,30 +673,30 @@ def search_apibay(query, category="all", year=""):
         "adult": ["501", "505", "699"]
     }
     allowed_cats = category_map.get(category, [])
-
+    
     try:
         url = f"https://apibay.org/q.php?q={query}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=10, headers=headers)
         results = resp.json()
-
+        
         if not results or (isinstance(results, list) and len(results) == 0):
             print(f"Empty response from apibay for query: {query}")
             return []
-
+        
         torrents = []
         for r in results:
             name = r.get("name", "")
             info_hash = r.get("info_hash", "")
             seeders = r.get("seeders", "0")
             cat = r.get("category", "")
-
+            
             if allowed_cats and cat not in allowed_cats:
                 continue
-
+            
             if not info_hash or len(info_hash) != 40:
                 continue
-
+            
             if info_hash:
                 magnet = f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
                 score = score_torrent(name, query, year)
@@ -710,15 +710,63 @@ def search_apibay(query, category="all", year=""):
                     "size": r.get("size", "0"),
                     "score": score
                 })
-
+        
         # Sort by score descending, then by seeders
         torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
-
+        
         # Only return torrents with a positive score
         return [t for t in torrents if t["score"] > 0 and t["resolution"]][:10]
     except Exception as e:
         print(f"Error searching apibay: {e}")
         return []
+
+def search_magnetz(query, category="all", year=""):
+    """Search magnetz.eu for torrents with relevance scoring"""
+    # Magnetz doesn't have explicit category IDs like Apibay in the search API
+    # but we can filter by name if a category is specified.
+    try:
+        url = f"https://magnetz.eu/api/magnets/search?query={query}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, timeout=10, headers=headers)
+        results = resp.json()
+        
+        if not results or not isinstance(results, list):
+            return []
+            
+        torrents = []
+        for r in results:
+            name = r.get("name", "")
+            info_hash = r.get("info_hash", "")
+            # Magnetz uses 'seeders' in its swarm object or directly
+            swarm = r.get("swarm", {})
+            seeders = swarm.get("seeders", "0") if isinstance(swarm, dict) else "0"
+            
+            if not info_hash or len(info_hash) != 40:
+                continue
+                
+            magnet = r.get("magnet") or f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
+            score = score_torrent(name, query, year)
+            
+            torrents.append({
+                "name": name,
+                "info_hash": info_hash,
+                "seeders": str(seeders),
+                "magnet": magnet,
+                "category": "all", # Magnetz search is general
+                "resolution": extract_resolution(name),
+                "size": r.get("size", "0"),
+                "score": score
+            })
+            
+        # Sort by score descending, then by seeders
+        torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+        
+        # Only return torrents with a positive score
+        return [t for t in torrents if t["score"] > 0 and t["resolution"]][:10]
+    except Exception as e:
+        print(f"Error searching magnetz: {e}")
+        return []
+
 
 def search_tmdb_page(query, page):
     """Fetch a single page of search results"""
@@ -873,29 +921,31 @@ def start_search_background(search_id, query, sort, category):
     if search_id in active_searches and not search.get("cancelled"):
         rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE)
 
-def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False):
-    """Full rebuild with cache + apibay (skip TMDb if local_only=True)"""
+def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False):
+    """Full rebuild with cache + apibay (skip TMDb if local_only=True, skip cache if external_only=True)"""
     global active_searches
     search = active_searches.get(search_id)
     if not search:
         return
-
+    
     seen_titles = set()
     combined = []
+    
+    # Search local cache - skip if external_only is True
+    if not external_only:
+        cache_data = load_cached_movies()
+        if cache_data:
+            all_movies = cache_data.get("movies", [])
+            query_lower = query.lower()
+            for m in all_movies:
+                title = m.get("title", "")
+                if query_lower in title.lower():
+                    m["search_source"] = "cache"
+                    normalized = title.lower().strip()
+                    if normalized not in seen_titles:
+                        seen_titles.add(normalized)
+                        combined.append(m)
 
-    # Search local cache
-    cache_data = load_cached_movies()
-    if cache_data:
-        all_movies = cache_data.get("movies", [])
-        query_lower = query.lower()
-        for m in all_movies:
-            title = m.get("title", "")
-            if query_lower in title.lower():
-                m["search_source"] = "cache"
-                normalized = title.lower().strip()
-                if normalized not in seen_titles:
-                    seen_titles.add(normalized)
-                    combined.append(m)
 
     # Only fetch TMDb if not local_only (cache already has TMDb data)
     if not local_only:
@@ -912,12 +962,32 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
 
     # Always include apibay results
     apibay_results = search_apibay(query, category)
-    for m in apibay_results:
+    magnetz_results = search_magnetz(query, category)
+    
+    # Merge and deduplicate by info_hash
+    all_torrents = apibay_results + magnetz_results
+    unique_torrents = {}
+    for t in all_torrents:
+        ih = t["info_hash"]
+        if ih not in unique_torrents:
+            unique_torrents[ih] = t
+        else:
+            # Keep the one with more seeders
+            current_seeders = int(t["seeders"]) if t["seeders"].isdigit() else 0
+            existing_seeders = int(unique_torrents[ih]["seeders"]) if unique_torrents[ih]["seeders"].isdigit() else 0
+            if current_seeders > existing_seeders:
+                unique_torrents[ih] = t
+                
+    combined_torrents = list(unique_torrents.values())
+    # Sort by score then seeders
+    combined_torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+    
+    for m in combined_torrents:
         title = m.get("name", "")
         normalized = title.lower().strip()
         if normalized not in seen_titles:
             seen_titles.add(normalized)
-            m["search_source"] = "apibay"
+            m["search_source"] = "external"
             m["title"] = title
             m["year"] = ""
             m["rating"] = None
@@ -1275,13 +1345,14 @@ def api_search():
     sort = request.args.get("sort", "all").strip()
     category = request.args.get("category", "all").strip()
     page = request.args.get("page", "1").strip()
+    external_only = request.args.get("external_only", "0") == "1"
     try:
         page = int(page)
     except:
         page = 1
-
+    
     MOVIES_PER_PAGE = 100
-
+    
     if category in ["tv", "music", "adult", "movies"]:
         all_results = search_apibay(query, category)
         total_results = len(all_results)
@@ -1296,6 +1367,124 @@ def api_search():
             "sources": {"apibay": total_results},
             "streaming": False
         })
+    
+    if not query and not year:
+        all_movies = get_popular_movies().get("movies", [])
+        total_results = len(all_movies)
+        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        return jsonify({
+            "results": all_movies[start_idx:end_idx],
+            "page": page,
+            "total_pages": total_pages,
+            "total_results": total_results,
+            "sources": {"popular": total_results},
+            "streaming": False
+        })
+    
+    if year and year.isdigit() and len(year) == 4:
+        all_results = search_year_parallel(year)
+        total_results = len(all_results)
+        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
+        start_idx = (page - 1) * MOVIES_PER_PAGE
+        end_idx = start_idx + MOVIES_PER_PAGE
+        return jsonify({
+            "results": all_results[start_idx:end_idx],
+            "page": page,
+            "total_pages": total_pages,
+            "total_results": total_results,
+            "sources": {"tmdb": total_results},
+            "streaming": False
+        })
+    
+    # Search - default to local-only (cache + apibay), skip TMDb
+    local_only = request.args.get("local", "1") != "0"
+    import uuid
+    search_id = str(uuid.uuid4())
+    
+    # Get total database count - skip if external_only
+    total_database = 0
+    if not external_only:
+        cache_data = load_cached_movies()
+        total_database = len(cache_data.get("movies", [])) if cache_data else 0
+    
+    # Cancel any previous active searches (frontend should handle this, but safety net)
+    for sid in list(active_searches.keys()):
+        active_searches[sid]["cancelled"] = True
+    
+    # Create search entry
+    active_searches[search_id] = {
+        "results": [],
+        "pages_fetched": 0,
+        "total_pages": 0,
+        "done": False,
+        "cancelled": False,
+        "lock": threading.Lock(),
+        "created": time.time()
+    }
+    
+    # Only fetch TMDb if not local_only
+    if not local_only:
+        # Start background fetcher
+        threading.Thread(
+            target=start_search_background,
+            args=(search_id, query, sort, category),
+            daemon=True
+        ).start()
+        
+        # Wait briefly for first page to populate
+        # time.sleep(1.5)
+        
+        with active_searches[search_id]["lock"]:
+            search = active_searches[search_id]
+            all_results = list(search["results"])
+            pages_fetched = search["pages_fetched"]
+            total_pages_est = search["total_pages"]
+            done = search["done"]
+            combined_results = list(search.get("combined", []))
+    else:
+        # Local-only search: immediately build combined results from cache
+        pages_fetched = 0
+        done = True
+        combined_results = []
+        with active_searches[search_id]["lock"]:
+            search = active_searches[search_id]
+            search["done"] = True
+            # Initialize combined for rebuild_combined_final
+            search["combined"] = []
+    
+    # Build final combined results
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only)
+    
+    with active_searches[search_id]["lock"]:
+        search = active_searches[search_id]
+        combined_results = list(search.get("combined", []))
+    
+    total_results = len(combined_results)
+    total_pages = search["total_pages"]
+    start_idx = (page - 1) * MOVIES_PER_PAGE
+    end_idx = start_idx + MOVIES_PER_PAGE
+    page_results = combined_results[start_idx:end_idx]
+    
+    return jsonify({
+        "results": page_results,
+        "page": page,
+        "total_pages": total_pages,
+        "total_results": total_results,
+        "total_database": total_database,
+        "search_id": search_id,
+        "pages_fetched": pages_fetched,
+        "done": done,
+        "streaming": True,
+        "combined": combined_results,
+        "sources": {
+            "cache": 0,
+            "tmdb": total_results,
+            "apibay": 0
+        }
+    })
+
 
     if not query and not year:
         all_movies = get_popular_movies().get("movies", [])
@@ -1361,7 +1550,8 @@ def api_search():
         ).start()
 
         # Wait briefly for first page to populate
-        time.sleep(1.5)
+        # time.sleep(1.5)
+
 
         with active_searches[search_id]["lock"]:
             search = active_searches[search_id]
@@ -1382,7 +1572,8 @@ def api_search():
             search["combined"] = []
 
     # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only)
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only)
+
     
     with active_searches[search_id]["lock"]:
         search = active_searches[search_id]
@@ -1477,18 +1668,44 @@ def api_search_cancel():
 
 @app.route("/api/torrent")
 def api_torrent():
-    """Get torrent info for a movie (searches apibay)"""
+    """Get torrent info for a movie (searches apibay and magnetz)"""
     query = request.args.get("q", "").strip()
     category = request.args.get("category", "all").strip()
     year = request.args.get("year", "").strip()
     if not query:
         return jsonify({"error": "No query"}), 400
-
-    torrents = search_apibay(query, category, year)
-    if not torrents:
+    
+    # Search both providers in parallel
+    futures = {
+        executor.submit(search_apibay, query, category, year): "apibay",
+        executor.submit(search_magnetz, query, category, year): "magnetz"
+    }
+    
+    all_torrents = []
+    for future in as_completed(futures):
+        all_torrents.extend(future.result())
+        
+    if not all_torrents:
         return jsonify({"error": "No torrents found"}), 404
+        
+    # Deduplicate by info_hash and keep highest seeders
+    unique_torrents = {}
+    for t in all_torrents:
+        ih = t["info_hash"]
+        if ih not in unique_torrents:
+            unique_torrents[ih] = t
+        else:
+            current_seeders = int(t["seeders"]) if t["seeders"].isdigit() else 0
+            existing_seeders = int(unique_torrents[ih]["seeders"]) if unique_torrents[ih]["seeders"].isdigit() else 0
+            if current_seeders > existing_seeders:
+                unique_torrents[ih] = t
+                
+    final_torrents = list(unique_torrents.values())
+    # Sort by score then seeders
+    final_torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+    
+    return jsonify(final_torrents)
 
-    return jsonify(torrents)
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
