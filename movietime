@@ -627,44 +627,42 @@ def score_torrent(name, title, year=""):
     if not title_words:
         return 0
 
+    # Year filter: Remove if it contains a year DIFFERENT from the selected one
+    if year and year.isdigit() and len(year) == 4:
+        current_year = int(time.strftime("%Y"))
+        potential_years = re.findall(r'\d{4}', name)
+        for py in potential_years:
+            py_int = int(py)
+            if 1900 <= py_int <= current_year:
+                if py != year:
+                    return 0
+    
     # Exact title match (highest score)
     clean_title = re.sub(r'[^a-z0-9\s]', ' ', title_lower).strip()
     clean_name = re.sub(r'[^a-z0-9\s]', ' ', name_lower).strip()
     if clean_title in clean_name or clean_name in clean_title:
-        return 200
+        score = 200
+    else:
+        # Word overlap score
+        match_count = sum(1 for w in title_words if w in name_words)
+        word_score = int((match_count / len(title_words)) * 100)
 
-    # Word overlap score
-    match_count = sum(1 for w in title_words if w in name_words)
-    word_score = int((match_count / len(title_words)) * 100)
+        # Year match bonus
+        year_bonus = 50 if (year and year.isdigit() and len(year) == 4 and year in name) else 0
 
-    # Year match bonus
-    year_bonus = 0
-    if year and year.isdigit() and len(year) == 4:
-        if year in name:
-            year_bonus = 50
+        # Resolution bonus
+        res_bonus = 0
+        if extract_resolution(name):
+            res_bonus = 10
+
+        total = word_score + year_bonus + res_bonus
+
+        if match_count >= len(title_words) // 2 + 1:
+            score = total
         else:
-            # Wrong year is a penalty
-            year_bonus = -30
+            score = total if total >= 60 else 0
 
-    # Resolution bonus
-    res_bonus = 0
-    if extract_resolution(name):
-        res_bonus = 10
-
-    # Seeder bonus (log scale to avoid huge numbers)
-    try:
-        seeders = int(name.split(" ")[-1]) if name.split(" ")[-1].isdigit() else 0
-    except:
-        seeders = 0
-
-    total = word_score + year_bonus + res_bonus
-
-    # If we have at least half the title words, it's probably a match
-    if match_count >= len(title_words) // 2 + 1:
-        return total
-
-    # Otherwise only return if score is high enough
-    return total if total >= 60 else 0
+    return score
 
 def search_apibay(query, category="all", year=""):
     """Search apibay.org for torrents with relevance scoring"""
@@ -678,7 +676,12 @@ def search_apibay(query, category="all", year=""):
     allowed_cats = category_map.get(category, [])
     
     try:
-        url = f"https://apibay.org/q.php?q={query}"
+        # Append year to query for better API results if year is specified
+        search_query = query
+        if year and year.isdigit() and len(year) == 4:
+            search_query = f"{query} {year}"
+            
+        url = f"https://apibay.org/q.php?q={search_query}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=10, headers=headers)
         results = resp.json()
@@ -722,7 +725,8 @@ def search_apibay(query, category="all", year=""):
         torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
         
         # Only return torrents with a positive score
-        return [t for t in torrents if t["score"] > 0 and t["resolution"]][:10]
+        results = [t for t in torrents if t["score"] > 0][:10]
+        return results
     except Exception as e:
         print(f"Error searching apibay: {e}")
         return []
@@ -732,7 +736,12 @@ def search_magnetz(query, category="all", year=""):
     # Magnetz doesn't have explicit category IDs like Apibay in the search API
     # but we can filter by name if a category is specified.
     try:
-        url = f"https://magnetz.eu/api/magnets/search?query={query}"
+        # Append year to query for better API results if year is specified
+        search_query = query
+        if year and year.isdigit() and len(year) == 4:
+            search_query = f"{query} {year}"
+            
+        url = f"https://magnetz.eu/api/magnets/search?query={search_query}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=10, headers=headers)
         results = resp.json()
@@ -769,7 +778,8 @@ def search_magnetz(query, category="all", year=""):
         torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
         
         # Only return torrents with a positive score
-        return [t for t in torrents if t["score"] > 0 and t["resolution"]][:10]
+        results = [t for t in torrents if t["score"] > 0][:10]
+        return results
     except Exception as e:
         print(f"Error searching magnetz: {e}")
         return []
@@ -844,7 +854,7 @@ def search_tmdb_multi_page(query, sort="all"):
 active_searches = {}
 search_cleanup_timer = None
 
-def start_search_background(search_id, query, sort, category):
+def start_search_background(search_id, query, sort, category, year=""):
     """Background thread that fetches remaining pages for a search"""
     global active_searches
     MAX_MOVIES = 500
@@ -926,9 +936,9 @@ def start_search_background(search_id, query, sort, category):
 
     # Final full rebuild with cache + apibay + dedup + sort (only once)
     if search_id in active_searches and not search.get("cancelled"):
-        rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE)
+        rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year=year)
 
-def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False):
+def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False, year=""):
     """Full rebuild with cache + apibay (skip TMDb if local_only=True, skip cache if external_only=True)"""
     global active_searches
     search = active_searches.get(search_id)
@@ -968,8 +978,8 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
                 combined.append(m)
 
     # Always include apibay results
-    apibay_results = search_apibay(query, category)
-    magnetz_results = search_magnetz(query, category)
+    apibay_results = search_apibay(query, category, year)
+    magnetz_results = search_magnetz(query, category, year)
     
     # Merge and deduplicate by info_hash
     all_torrents = apibay_results + magnetz_results
@@ -1361,7 +1371,7 @@ def api_search():
     MOVIES_PER_PAGE = 100
     
     if category in ["tv", "music", "adult", "movies"]:
-        all_results = search_apibay(query, category)
+        all_results = search_apibay(query, category, year)
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
         start_idx = (page - 1) * MOVIES_PER_PAGE
@@ -1390,7 +1400,7 @@ def api_search():
             "streaming": False
         })
     
-    if year and year.isdigit() and len(year) == 4:
+    if not query and year and year.isdigit() and len(year) == 4:
         all_results = search_year_parallel(year)
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
@@ -1436,7 +1446,7 @@ def api_search():
         # Start background fetcher
         threading.Thread(
             target=start_search_background,
-            args=(search_id, query, sort, category),
+            args=(search_id, query, sort, category, year),
             daemon=True
         ).start()
         
@@ -1462,7 +1472,7 @@ def api_search():
             search["combined"] = []
     
     # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only)
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year)
     
     with active_searches[search_id]["lock"]:
         search = active_searches[search_id]
@@ -1506,9 +1516,9 @@ def api_search():
             "total_results": total_results,
             "sources": {"popular": total_results},
             "streaming": False
-        })
-
-    if year and year.isdigit() and len(year) == 4:
+    })
+    
+    if not query and year and year.isdigit() and len(year) == 4:
         all_results = search_year_parallel(year)
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
@@ -1552,7 +1562,7 @@ def api_search():
         # Start background fetcher
         threading.Thread(
             target=start_search_background,
-            args=(search_id, query, sort, category),
+            args=(search_id, query, sort, category, year),
             daemon=True
         ).start()
 
@@ -1579,7 +1589,7 @@ def api_search():
             search["combined"] = []
 
     # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only)
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year)
 
     
     with active_searches[search_id]["lock"]:
@@ -2050,7 +2060,7 @@ def main():
     app.setApplicationName("MovieTime")
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
 
     shutdown_requested = threading.Event()
 

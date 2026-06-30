@@ -1619,7 +1619,7 @@ async function playMovie(movie, source, card) {
             // 2. Background External Search
             const requestId = ++currentSearchRequestId;
             
-            fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}&external_only=1`)
+            fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}&external_only=1&year=${encodeURIComponent(currentYear)}`)
                 .then(resp => resp.json())
                 .then(data => {
                     if (requestId !== currentSearchRequestId) return;
