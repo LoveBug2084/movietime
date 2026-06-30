@@ -104,6 +104,9 @@ new_movies_lock = threading.Lock()  # Protect new_movies file operations
 # Rate limiting: 24 req/sec = 1/24 sec between requests
 SYNC_RATE_LIMIT = 1 / 24
 
+# Adult content filtering
+ADULT_CATEGORIES = {'501', '505', '506', '699'}
+
 # Async config - serial request for rate limiting
 MAX_CONCURRENT = 1
 
@@ -691,6 +694,10 @@ def search_apibay(query, category="all", year=""):
             seeders = r.get("seeders", "0")
             cat = r.get("category", "")
             
+            # Adult filter
+            if cat in ADULT_CATEGORIES:
+                continue
+                
             if allowed_cats and cat not in allowed_cats:
                 continue
             

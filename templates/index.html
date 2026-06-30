@@ -284,8 +284,13 @@
         }
         .movie-card .torrent-status {
             font-size: 12px;
-            color: #e50914;
             margin-top: 5px;
+        }
+        .movie-card .torrent-status.searching {
+            color: #2ecc71;
+        }
+        .movie-card .torrent-status.error {
+            color: #e50914;
         }
         .movie-card .download-bar {
             display: none;
@@ -961,24 +966,25 @@
                     card.dataset.movieYear = year;
                 }
                 
-                if (movie.poster && !movie.seeders) {
-                    card.dataset.movieTitle = title;
-                    card.onmouseenter = () => setupTorrentHover(card, title, year);
-                    card.onmouseleave = () => clearTorrentHover(title);
-                    if (torrentCache[title]) {
-                        updateCardWithTorrent(card, torrentCache[title]);
-                    }
-                } else if (movie.seeders && !movie.poster) {
-                    const torrents = [{
-                        resolution: movie.resolution || 'N/A',
-                        size: movie.size || '0',
-                        seeders: movie.seeders,
-                        info_hash: movie.info_hash || '',
-                        magnet: movie.magnet || '',
-                        name: movie.name || title
-                    }];
-                    updateCardWithTorrent(card, torrents);
-                }
+                 if (movie.seeders) {
+                     const torrents = [{
+                         resolution: movie.resolution || 'N/A',
+                         size: movie.size || '0',
+                         seeders: movie.seeders,
+                         info_hash: movie.info_hash || '',
+                         magnet: movie.magnet || '',
+                         name: movie.name || title
+                     }];
+                     updateCardWithTorrent(card, torrents);
+                 } else if (movie.poster) {
+                     card.dataset.movieTitle = title;
+                     card.onmouseenter = () => setupTorrentHover(card, title, year);
+                     card.onmouseleave = () => clearTorrentHover(title);
+                     if (torrentCache[title]) {
+                         updateCardWithTorrent(card, torrentCache[title]);
+                     }
+                 }
+
                 
                 card.onclick = async (e) => {
                     if (e.target.closest('.resolution-item')) return;
@@ -1008,23 +1014,30 @@
                 clearTimeout(hoverTimeouts[title]);
             }
             
-            hoverTimeouts[title] = setTimeout(() => {
-                if (torrentCache[title] && torrentCache[title].length > 0 && torrentCache[title][0].size !== undefined) {
-                    updateCardWithTorrent(card, torrentCache[title]);
-                    return;
+                hoverTimeouts[title] = setTimeout(() => {
+                    if (torrentCache[title] && torrentCache[title].length > 0 && torrentCache[title][0].size !== undefined) {
+                        updateCardWithTorrent(card, torrentCache[title]);
+                        return;
+                    }
+                    
+                    if (pendingFetches[title]) {
+                        return;
+                    }
+                    
+                const loadingEl = card.querySelector('.torrent-status');
+                if (loadingEl) {
+                    loadingEl.textContent = 'Searching...';
+                    loadingEl.className = 'torrent-status searching';
                 }
                 
-                if (pendingFetches[title]) {
-                    return;
-                }
-                
-const loadingEl = card.querySelector('.torrent-status');
-
                 pendingFetches[title] = true;
                 fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
                     .then(resp => {
                         if (!resp.ok) {
-                            if (loadingEl) loadingEl.textContent = 'No torrents';
+                            if (loadingEl) {
+                                loadingEl.textContent = 'No torrents';
+                                loadingEl.className = 'torrent-status error';
+                            }
                             pendingFetches[title] = false;
                             return;
                         }
@@ -1036,14 +1049,21 @@ const loadingEl = card.querySelector('.torrent-status');
                             torrentCache[title] = data;
                             updateCardWithTorrent(card, data);
                         } else {
-                            if (loadingEl) loadingEl.textContent = 'No torrents';
+                            if (loadingEl) {
+                                loadingEl.textContent = 'No torrents';
+                                loadingEl.className = 'torrent-status error';
+                            }
                         }
                     })
                     .catch(() => {
                         pendingFetches[title] = false;
-                        if (loadingEl) loadingEl.textContent = 'No torrents';
+                        if (loadingEl) {
+                            loadingEl.textContent = 'No torrents';
+                            loadingEl.className = 'torrent-status error';
+                        }
                     });
-            }, 300);
+
+                }, 300);
         }
         
         function clearTorrentHover(title) {
@@ -1055,15 +1075,25 @@ const loadingEl = card.querySelector('.torrent-status');
         
         function updateCardWithTorrent(card, torrents) {
             const loadingEl = card.querySelector('.torrent-status');
-            if (loadingEl) loadingEl.textContent = '';
-            
             const listEl = card.querySelector('.resolution-list');
             if (!listEl) return;
             
-            const adultCategories = ['501', '505', '506'];
+            const adultCategories = ['501', '505', '506', '699'];
             const movieTorrents = torrents.filter(t => !adultCategories.includes(t.category));
-
+            
+            if (movieTorrents.length === 0) {
+                if (loadingEl) {
+                    loadingEl.textContent = 'No torrents';
+                    loadingEl.className = 'torrent-status error';
+                }
+                listEl.innerHTML = '';
+                listEl.classList.remove('visible');
+                return;
+            }
+            
             if (listEl.children.length === movieTorrents.length) return;
+            
+            if (loadingEl) loadingEl.textContent = '';
             
             const seedersEl = card.querySelector('.seeders');
             if (seedersEl) seedersEl.style.display = 'none';
@@ -1071,6 +1101,7 @@ const loadingEl = card.querySelector('.torrent-status');
             const resEl = card.querySelector('.resolution');
             if (resEl) resEl.style.display = 'none';
             
+            listEl.innerHTML = '';
             movieTorrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
