@@ -657,6 +657,7 @@
             </div>
             <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">R</button>
             <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
+            <button class="folder-btn" id="view-toggle-btn" onclick="toggleViewMode()" title="Toggle Library View">📚 All</button>
         </div>
     </div>
     
@@ -674,9 +675,11 @@
         let currentSearchId = null;
         let currentSearchRequestId = 0;
         let searchResultsCache = [];
-
-
+        let viewMode = 'all'; // 'all' or 'downloaded'
+ 
+ 
         let searchPollInterval = null;
+
         let torrentCache = {};
         let hoverTimeouts = {};
         let pendingFetches = {};
@@ -752,6 +755,44 @@
             }
         }
         
+        async function toggleViewMode() {
+            const btn = document.getElementById('view-toggle-btn');
+            if (viewMode === 'all') {
+                viewMode = 'downloaded';
+                btn.textContent = '📚 Library';
+                btn.style.background = '#0099ff';
+                await loadDownloadedMovies();
+            } else {
+                viewMode = 'all';
+                btn.textContent = '📚 All';
+                btn.style.background = '#333';
+                loadAll(currentPage);
+            }
+        }
+
+        async function loadDownloadedMovies() {
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">Loading library...</div>';
+            try {
+                const resp = await fetch('/api/downloads/list');
+                const movies = await resp.json();
+                
+                if (!movies || movies.length === 0) {
+                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">No downloaded movies found</div>';
+                    return;
+                }
+                
+                renderMovies(movies, 'downloaded');
+                
+                // Since this is a fixed list, update pagination to show 1 page
+                currentTotalPages = 1;
+                currentPage = 1;
+                updatePagination(1);
+                document.getElementById('movie-count').textContent = movies.length.toLocaleString() + ' Downloaded Movies';
+            } catch (e) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #e50914;">Error loading library</div>';
+            }
+        }
+        
         function sortAndFilterMovies(movies, query) {
             let result = [...movies];
             
@@ -784,6 +825,7 @@
         }
         
         async function loadAll(page = 1) {
+            if (viewMode === 'downloaded') return;
             currentSearchRequestId++;
             cancelCurrentSearch();
             currentSource = 'popular';
@@ -1627,6 +1669,7 @@ async function playMovie(movie, source, card) {
         }
         
         function performSearch(query, page = 1) {
+            if (viewMode === 'downloaded') return;
             // Always show pagination
             const pagination = document.getElementById('pagination');
             pagination.style.display = 'flex';

@@ -1749,6 +1749,94 @@ def api_search_cancel():
             active_searches[search_id]["cancelled"] = True
     return jsonify({"status": "ok"})
 
+@app.route("/api/downloads/list")
+def api_downloads_list():
+    """List all movies that have a status file in the downloads directory, recovering old ones if needed"""
+    downloaded_movies = []
+    
+    # Load TMDb cache for metadata matching
+    cache_data = load_cached_movies()
+    if not cache_data:
+        return jsonify([])
+    
+    all_movies = cache_data.get("movies", [])
+    
+    # Scan download directory
+    if not os.path.exists(DOWNLOAD_DIR):
+        return jsonify([])
+
+    for info_hash in os.listdir(DOWNLOAD_DIR):
+        hash_dir = os.path.join(DOWNLOAD_DIR, info_hash)
+        if not os.path.isdir(hash_dir):
+            continue
+
+        status_path = os.path.join(hash_dir, STATUS_FILE_NAME)
+        
+        # Self-healing: If status file is missing, try to recover from video files
+        if not os.path.exists(status_path):
+            video_file = find_video_file(info_hash)
+            if video_file:
+                # Create a basic status file based on the video filename
+                filename = os.path.basename(video_file)
+                # Remove extension for the name
+                name_without_ext = os.path.splitext(filename)[0]
+                
+                is_playable = is_valid_video_file(video_file)
+                
+                # Save a basic status file so it shows up in the library
+                save_torrent_status(info_hash, {
+                    "progress": 0,
+                    "downloaded_bytes": os.path.getsize(video_file),
+                    "total_bytes": 0,
+                    "status": "recovered",
+                    "is_playable": is_playable,
+                    "last_updated": time.time(),
+                    "name": name_without_ext
+                })
+        
+        # Now read the status (whether it was there or just created)
+        status = get_torrent_status(info_hash)
+        if not status:
+            continue
+        
+        torrent_name = status.get("name", "")
+        if not torrent_name:
+            continue
+            
+        # Try to match torrent name to a movie in the cache
+        matched_movie = None
+        torrent_name_lower = torrent_name.lower()
+        
+        # Sort cache movies by title length (descending) to match the most specific title first
+        sorted_movies = sorted(all_movies, key=lambda x: len(x.get("title", "")), reverse=True)
+        
+        for m in sorted_movies:
+            title = m.get("title", "").lower()
+            if title and title in torrent_name_lower:
+                matched_movie = m
+                break
+        
+        if matched_movie:
+            movie_obj = matched_movie.copy()
+            movie_obj["info_hash"] = info_hash
+            movie_obj["progress"] = status.get("progress", 0)
+            movie_obj["is_playable"] = status.get("is_playable", False)
+            downloaded_movies.append(movie_obj)
+        else:
+            downloaded_movies.append({
+                "id": None,
+                "title": torrent_name,
+                "poster": None,
+                "overview": "Local download",
+                "year": "",
+                "rating": None,
+                "info_hash": info_hash,
+                "progress": status.get("progress", 0),
+                "is_playable": status.get("is_playable", False)
+            })
+
+    return jsonify(downloaded_movies)
+
 @app.route("/api/torrent")
 def api_torrent():
     """Get torrent info for a movie (searches apibay and magnetz)"""
@@ -1784,9 +1872,31 @@ def api_torrent():
                 unique_torrents[ih] = t
                 
     final_torrents = list(unique_torrents.values())
-    # Add download status from disk
+    # Heal status files for any torrents that have a directory on disk
     for t in final_torrents:
-        status = get_torrent_status(t["info_hash"])
+        ih = t["info_hash"]
+        status = get_torrent_status(ih)
+        
+        # If status file is missing or lacks a magnet/name, heal it
+        if not status or not status.get("magnet") or not status.get("name"):
+            if os.path.isdir(os.path.join(DOWNLOAD_DIR, ih)):
+                log_debug(f"[DEBUG torrent] Healing status file for {ih}")
+                current_status = status or {}
+                # Preserve progress and playability if they existed
+                updated_status = {
+                    "progress": current_status.get("progress", 0),
+                    "downloaded_bytes": current_status.get("downloaded_bytes", 0),
+                    "total_bytes": current_status.get("total_bytes", 0),
+                    "status": current_status.get("status", "recovered"),
+                    "is_playable": current_status.get("is_playable", False),
+                    "last_updated": time.time(),
+                    "magnet": t["magnet"],
+                    "name": t["name"]
+                }
+                save_torrent_status(ih, updated_status)
+                status = updated_status
+
+        # Update the response object with the latest status
         if status:
             t["progress"] = status.get("progress", 0)
             t["is_playable"] = status.get("is_playable", False)
