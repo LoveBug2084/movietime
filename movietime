@@ -513,7 +513,7 @@ def load_cached_movies():
     """Load movies from cache file"""
     if not os.path.exists(CACHE_FILE):
         return None
-
+    
     try:
         movies = load_json_file(CACHE_FILE)
         if movies:
@@ -523,6 +523,7 @@ def load_cached_movies():
     except Exception as e:
         print(f"Error loading cache: {e}")
         return None
+
 
 def search_year_page(year, page):
     """Fetch a single page of movies from TMDb discover API"""
@@ -1981,21 +1982,22 @@ def api_open_downloads():
 
 class MainWindow(QMainWindow):
     """Main window for MovieTime desktop app"""
-
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MovieTime")
         self.setGeometry(100, 100, 1200, 800)
-
+        
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
-
+        
         self.web_view = QWebEngineView()
         self.web_view.setUrl(QUrl("http://127.0.0.1:65000"))
-
+        
         layout.addWidget(self.web_view)
+
 
     def closeEvent(self, event):
         cleanup_on_exit()

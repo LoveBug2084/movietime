@@ -72,11 +72,17 @@
             background: #e50914;
             border: none;
             color: #fff;
-            padding: 8px 15px;
+            padding: 0 15px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 18px;
             font-weight: bold;
+            min-width: 45px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
         }
         .pagination button:hover {
             background: #f40612;
@@ -90,18 +96,40 @@
             color: #fff;
             white-space: nowrap;
         }
-        .folder-btn {
-            display: none;
-            background: #333;
+        .refresh-btn {
+            background: #0099ff;
             border: none;
             color: #fff;
-            width: 36px;
-            height: 36px;
+            padding: 0 15px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 18px;
+            font-weight: bold;
+            min-width: 45px;
+            height: 36px;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
+            line-height: 1;
+        }
+        .refresh-btn:hover {
+            background: #33aaff;
+        }
+        .folder-btn {
+            background: #333;
+            border: none;
+            color: #fff;
+            padding: 0 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            min-width: 45px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
             margin-left: 10px;
             transition: background 0.15s;
         }
@@ -442,7 +470,6 @@
             opacity: 1;
         }
         </style>
-    <script src="/qwebchannel.js"></script>
 </head>
 <body>
     <div id="notification" class="notification"></div>
@@ -623,11 +650,12 @@
                 </select>
             </div>
             <div class="pagination" id="pagination">
-                <span id="movie-count" style="margin-right: 15px;">0 Movies</span>
+                <span id="movie-count" style="margin-right: 15px;">Loading...</span>
                 <button id="prev-btn" onclick="changePage(-1)">◀</button>
                 <span id="page-info">Page 1</span>
                 <button id="next-btn" onclick="changePage(1)">▶</button>
             </div>
+            <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">🗘</button>
             <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
         </div>
     </div>
@@ -658,6 +686,17 @@
         let totalDatabaseMovies = 0;
         let lastTotalMovies = 0;
         
+        async function refreshDatabase() {
+            document.getElementById('movie-count').textContent = 'Loading...';
+            popularLoaded = false;
+            await loadAll(1);
+            
+            const query = searchInput.value.trim();
+            if (query) {
+                performSearch(query);
+            }
+        }
+
         const grid = document.getElementById('grid');
         const searchInput = document.getElementById('search');
         const notification = document.getElementById('notification');
@@ -678,21 +717,9 @@
             notification.classList.add('visible');
             setTimeout(() => notification.classList.remove('visible'), 10000);
         }
-
-        // Set up QWebChannel to get pyqt object
-        if (typeof QWebChannel !== 'undefined') {
-            new QWebChannel(qt.webChannelTransport, function(channel) {
-                window.pyqt = channel.objects.pyqt;
-            });
-        }
-        
-        // Show folder button only in desktop wrapper (QtWebEngine has 'qt' object)
-        if (typeof qt !== 'undefined') {
-            const folderBtn = document.querySelector('.folder-btn');
-            if (folderBtn) folderBtn.style.display = 'flex';
-        }
         
         function handleGenreChange() {
+
             currentGenre = genreSelect.value;
             const query = searchInput.value.trim();
             
@@ -718,21 +745,10 @@
             currentRating = ratingSelect.value;
             const query = searchInput.value.trim();
             
-            // Apply rating filter - either with search or just filter current movies
             if (query) {
                 performSearch(query);
-            } else if (displayMovies.length > 0) {
-                const filtered = sortAndFilterMovies(displayMovies, '');
-                if (currentGenre || currentSearchQuery || currentRating || currentYear) {
-                    document.getElementById('movie-count').textContent = filtered.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
-                }
-                
-                const MOVIES_PER_PAGE = 100;
-                currentTotalPages = Math.max(1, Math.ceil(filtered.length / MOVIES_PER_PAGE));
-                currentPage = 1;
-                currentMovies = filtered.slice(0, MOVIES_PER_PAGE);
-                renderMovies(currentMovies, currentSource);
-                updatePagination(currentTotalPages);
+            } else {
+                loadAll(1);
             }
         }
         
@@ -786,6 +802,7 @@
             }
             
             // Apply genre filter if selected
+
             let filteredMovies = displayMovies;
             if (currentGenre) {
                 const genreId = parseInt(currentGenre);
