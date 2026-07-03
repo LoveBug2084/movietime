@@ -651,11 +651,11 @@
             </div>
             <div class="pagination" id="pagination">
                 <span id="movie-count" style="margin-right: 15px;">Loading...</span>
-                <button id="prev-btn" onclick="changePage(-1)">◀</button>
+                <button id="prev-btn" onclick="changePage(-1)" title="Previous page">◀</button>
                 <span id="page-info">Page 1</span>
-                <button id="next-btn" onclick="changePage(1)">▶</button>
+                <button id="next-btn" onclick="changePage(1)" title="Next page">▶</button>
             </div>
-            <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">🗘</button>
+            <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">R</button>
             <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
         </div>
     </div>
@@ -1119,6 +1119,8 @@
             if (resEl) resEl.style.display = 'none';
             
             listEl.innerHTML = '';
+            let anyPlayable = false;
+            let bestPlayableHash = null;
             movieTorrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
@@ -1134,20 +1136,47 @@
                 
                 const seeders = document.createElement('span');
                 seeders.className = 'res-seeders';
-                seeders.textContent = `${torrent.seeders || 0} seeders`;
+                const progress = torrent.progress || 0;
+                if (progress > 0) {
+                    seeders.textContent = `${progress}%`;
+                    seeders.style.color = '#0099ff';
+                } else {
+                    seeders.textContent = `${torrent.seeders || 0} seeders`;
+                }
                 
                 item.appendChild(label);
                 item.appendChild(size);
                 item.appendChild(seeders);
                 
+                if (torrent.is_playable) {
+                    anyPlayable = true;
+                    item.title = 'Ready to play';
+                    // Use the first playable torrent found (they are sorted by score/seeders)
+                    if (!bestPlayableHash) {
+                        bestPlayableHash = torrent.info_hash;
+                    }
+                }
+
                 item.onclick = (e) => {
                     e.stopPropagation();
-                    startDownloadFromTorrent(card, torrent);
+                    if (torrent.is_playable) {
+                        startPlayback(torrent.info_hash);
+                    } else {
+                        startDownloadFromTorrent(card, torrent);
+                    }
                 };
                 
                 listEl.appendChild(item);
             });
             listEl.classList.add('visible');
+            if (anyPlayable) {
+                card.classList.add('playable');
+                const btn = card.querySelector('.dl-play');
+                if (btn) btn.classList.add('ready');
+                if (bestPlayableHash) {
+                    card.dataset.infoHash = bestPlayableHash;
+                }
+            }
         }
         
         async function loadDownloads() {

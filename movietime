@@ -73,6 +73,7 @@ def add_no_cache(response):
     return response
 
 DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "download")
+STATUS_FILE_NAME = ".movietimeStatus"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # Cache file for popular movies
@@ -1082,7 +1083,7 @@ mpv_lock = threading.Lock()
 def download_torrent(magnet_link, info_hash, name):
     """Download torrent using libtorrent with sequential piece priority"""
     global current_download
-
+ 
     with download_lock:
         # Pause any existing download (keep data so it can resume later)
         if current_download["handle"]:
@@ -1090,29 +1091,31 @@ def download_torrent(magnet_link, info_hash, name):
                 lt_session.remove_torrent(current_download["handle"], False)
             except:
                 pass
-
+ 
     # Build magnet link with trackers
     tracker_params = "&tr=".join(PUBLIC_TRACKERS)
     if tracker_params:
         magnet_link = magnet_link + "&tr=" + tracker_params
-
+ 
     print(f"Starting libtorrent download: {magnet_link[:80]}...")
-
+ 
     atp = lt.parse_magnet_uri(magnet_link)
     hash_dir = os.path.join(DOWNLOAD_DIR, info_hash)
     atp.save_path = os.path.abspath(hash_dir)
     os.makedirs(atp.save_path, exist_ok=True)
     atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
     atp.flags |= lt.torrent_flags.sequential_download
-
+ 
     handle = lt_session.add_torrent(atp)
     handle.set_upload_limit(0)  # Disable seeding/upload
-
+ 
     with download_lock:
         current_download["handle"] = handle
         current_download["info_hash"] = info_hash
         current_download["name"] = name
+        current_download["magnet"] = magnet_link
         current_download["video_file"] = None
+
 
     # For magnet links, metadata must be downloaded first.
     # Poll until metadata arrives.
@@ -1147,6 +1150,33 @@ def find_video_file(info_hash):
                     return full_path
 
     return None
+
+def save_torrent_status(info_hash, status_data):
+    """Save torrent download status to .movietimeStatus file"""
+    if not info_hash:
+        return
+    hash_dir = os.path.join(DOWNLOAD_DIR, info_hash)
+    os.makedirs(hash_dir, exist_ok=True)
+    status_path = os.path.join(hash_dir, STATUS_FILE_NAME)
+    try:
+        with open(status_path, "w") as f:
+            json.dump(status_data, f)
+    except Exception as e:
+        print(f"Error saving status for {info_hash}: {e}")
+
+def get_torrent_status(info_hash):
+    """Read torrent download status from .movietimeStatus file"""
+    if not info_hash:
+        return None
+    status_path = os.path.join(DOWNLOAD_DIR, info_hash, STATUS_FILE_NAME)
+    if not os.path.exists(status_path):
+        return None
+    try:
+        with open(status_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error reading status for {info_hash}: {e}")
+        return None
 
 def is_valid_video_file(file_path):
     """Check if file has a valid video header"""
@@ -1186,6 +1216,41 @@ def is_valid_video_file(file_path):
     except Exception as e:
         print(f"Error checking video file: {e}")
         return False
+
+def update_active_download_status_loop():
+    """Background thread to periodically save progress of the active download"""
+    last_progress = {}
+    while True:
+        with download_lock:
+            handle = current_download.get("handle")
+            info_hash = current_download.get("info_hash")
+
+        if handle and handle.is_valid() and info_hash:
+            status = handle.status()
+            downloaded = status.total_wanted_done
+            total = status.total_wanted
+            progress = 0
+            if total > 0:
+                progress = (downloaded * 100) // total
+
+            # Update if progress changed by at least 1% or if it's finished
+            if last_progress.get(info_hash) != progress or status.state in (lt.torrent_status.seeding, lt.torrent_status.finished):
+                video_file = find_video_file(info_hash)
+                is_playable = is_valid_video_file(video_file) if video_file else False
+                
+                save_torrent_status(info_hash, {
+                    "progress": int(progress),
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total,
+                    "status": "completed" if status.state in (lt.torrent_status.seeding, lt.torrent_status.finished) else "downloading",
+                    "is_playable": is_playable,
+                    "last_updated": time.time(),
+                    "magnet": current_download.get("magnet"),
+                    "name": current_download.get("name")
+                })
+                last_progress[info_hash] = progress
+
+        time.sleep(5)
 
 def apply_sequential_priority(handle):
     """Prioritize the video file's pieces so the header downloads first.
@@ -1719,6 +1784,16 @@ def api_torrent():
                 unique_torrents[ih] = t
                 
     final_torrents = list(unique_torrents.values())
+    # Add download status from disk
+    for t in final_torrents:
+        status = get_torrent_status(t["info_hash"])
+        if status:
+            t["progress"] = status.get("progress", 0)
+            t["is_playable"] = status.get("is_playable", False)
+        else:
+            t["progress"] = 0
+            t["is_playable"] = False
+
     # Sort by score then seeders
     final_torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
     
@@ -1885,23 +1960,41 @@ def is_download_active():
 
 @app.route("/api/play", methods=["POST"])
 def api_play():
-    """Start playing a specific download with mpv"""
+    """Start playing a specific download with mpv, resuming download if necessary"""
     data = request.json or {}
     info_hash = data.get("info_hash")
-
+ 
     if not info_hash:
         return jsonify({"error": "info_hash required"}), 400
-
+ 
+    # Check if this torrent is currently active in the session
+    with download_lock:
+        is_active = current_download.get("info_hash") == info_hash
+ 
+    if not is_active:
+        # Try to resume from status file
+        status = get_torrent_status(info_hash)
+        if status and status.get("magnet") and status.get("name"):
+            log_debug(f"[DEBUG play] Resuming download for {info_hash}")
+            threading.Thread(
+                target=download_torrent, 
+                args=(status["magnet"], info_hash, status["name"]), 
+                daemon=True
+            ).start()
+            # Give it a small moment to initialize in the session
+            time.sleep(0.2)
+ 
     video_file = find_video_file(info_hash)
     log_debug(f"[DEBUG play] video_file: {video_file}")
-
+ 
     if not video_file or not os.path.exists(video_file):
         log_debug(f"[DEBUG play] ERROR: No video file found")
         return jsonify({"error": "No video file"}), 404
-
+ 
     valid = is_valid_video_file(video_file)
     file_size = os.path.getsize(video_file) if video_file else 0
     log_debug(f"[DEBUG play] valid: {valid}, file_size: {file_size}")
+
 
     if not valid:
         log_debug(f"[DEBUG play] ERROR: Video file not valid")
@@ -2048,14 +2141,18 @@ def main():
     import sys
     import signal
     global sync_thread
-
+ 
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-
+ 
     sync_thread = threading.Thread(target=background_sync, daemon=True)
     sync_thread.start()
 
+    status_thread = threading.Thread(target=update_active_download_status_loop, daemon=True)
+    status_thread.start()
+ 
     time.sleep(1)
+
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
