@@ -1224,11 +1224,15 @@ def update_active_download_status_loop():
         with download_lock:
             handle = current_download.get("handle")
             info_hash = current_download.get("info_hash")
+            video_total_size = current_download.get("video_total_size")
 
         if handle and handle.is_valid() and info_hash:
             status = handle.status()
             downloaded = status.total_wanted_done
-            total = status.total_wanted
+            
+            # Use video-specific size for progress if available to avoid "junk" bloat
+            total = video_total_size if video_total_size else status.total_wanted
+            
             progress = 0
             if total > 0:
                 progress = (downloaded * 100) // total
@@ -1251,6 +1255,7 @@ def update_active_download_status_loop():
                 last_progress[info_hash] = progress
 
         time.sleep(5)
+
 
 def apply_sequential_priority(handle):
     """Prioritize the video file's pieces so the header downloads first.
@@ -1308,6 +1313,7 @@ def apply_sequential_priority(handle):
         current_download["video_start_piece"] = video_start_piece
         current_download["header_piece_count"] = header_count
         current_download["piece_length"] = piece_length
+        current_download["video_total_size"] = best_size
 
     log_debug(f"[DEBUG priority] Stored: start_piece={video_start_piece}, header_count={header_count}")
 
@@ -1751,17 +1757,19 @@ def api_search_cancel():
 
 @app.route("/api/downloads/list")
 def api_downloads_list():
-    """List all movies that have a status file in the downloads directory, recovering old ones if needed"""
+    """List all movies that have a status file in the downloads directory, using direct ID lookup for speed"""
     downloaded_movies = []
     
-    # Load TMDb cache for metadata matching
     cache_data = load_cached_movies()
     if not cache_data:
         return jsonify([])
     
     all_movies = cache_data.get("movies", [])
+    # Create a map for O(1) lookup by ID
+    movie_id_map = {m["id"]: m for m in all_movies if "id" in m}
+    # Pre-sort cache movies by title length once for fallback matching
+    sorted_movies = sorted(all_movies, key=lambda x: len(x.get("title", "")), reverse=True)
     
-    # Scan download directory
     if not os.path.exists(DOWNLOAD_DIR):
         return jsonify([])
 
@@ -1772,18 +1780,12 @@ def api_downloads_list():
 
         status_path = os.path.join(hash_dir, STATUS_FILE_NAME)
         
-        # Self-healing: If status file is missing, try to recover from video files
         if not os.path.exists(status_path):
             video_file = find_video_file(info_hash)
             if video_file:
-                # Create a basic status file based on the video filename
                 filename = os.path.basename(video_file)
-                # Remove extension for the name
                 name_without_ext = os.path.splitext(filename)[0]
-                
                 is_playable = is_valid_video_file(video_file)
-                
-                # Save a basic status file so it shows up in the library
                 save_torrent_status(info_hash, {
                     "progress": 0,
                     "downloaded_bytes": os.path.getsize(video_file),
@@ -1794,7 +1796,6 @@ def api_downloads_list():
                     "name": name_without_ext
                 })
         
-        # Now read the status (whether it was there or just created)
         status = get_torrent_status(info_hash)
         if not status:
             continue
@@ -1803,18 +1804,23 @@ def api_downloads_list():
         if not torrent_name:
             continue
             
-        # Try to match torrent name to a movie in the cache
         matched_movie = None
-        torrent_name_lower = torrent_name.lower()
-        
-        # Sort cache movies by title length (descending) to match the most specific title first
-        sorted_movies = sorted(all_movies, key=lambda x: len(x.get("title", "")), reverse=True)
-        
-        for m in sorted_movies:
-            title = m.get("title", "").lower()
-            if title and title in torrent_name_lower:
-                matched_movie = m
-                break
+        # 1. Direct ID Lookup (Instant)
+        tmdb_id = status.get("tmdb_id")
+        if tmdb_id and tmdb_id in movie_id_map:
+            matched_movie = movie_id_map[tmdb_id]
+        else:
+            # 2. Fallback: Match by name (Slow, but only done once)
+            torrent_name_lower = torrent_name.lower()
+            for m in sorted_movies:
+                title = m.get("title", "").lower()
+                if title and title in torrent_name_lower:
+                    matched_movie = m
+                    # Save the ID so next time is instant
+                    current_status = status.copy()
+                    current_status["tmdb_id"] = matched_movie["id"]
+                    save_torrent_status(info_hash, current_status)
+                    break
         
         if matched_movie:
             movie_obj = matched_movie.copy()
@@ -1895,6 +1901,15 @@ def api_torrent():
                 }
                 save_torrent_status(ih, updated_status)
                 status = updated_status
+        
+        # Use the stored progress directly from the status file
+        if status:
+            t["progress"] = status.get("progress", 0)
+            t["is_playable"] = status.get("is_playable", False)
+        else:
+            t["progress"] = 0
+            t["is_playable"] = False
+
 
         # Update the response object with the latest status
         if status:
@@ -1903,6 +1918,7 @@ def api_torrent():
         else:
             t["progress"] = 0
             t["is_playable"] = False
+
 
     # Sort by score then seeders
     final_torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)

@@ -1,36 +1,26 @@
-# MovieTime TODO - Download Persistence
+# TODO: Fix Torrent Year Mismatch (e.g., Scarface 1932 vs 1983)
+
+## Problem
+Movies with the same title but different release years are showing incorrect torrents. 
+Currently, the `score_torrent` logic rejects torrents with the **wrong** year but accepts torrents with **no year**. Because popular movies (like Scarface 1983) often omit the year in the filename, they are incorrectly matched to movies of the same name from different years (like Scarface 1932).
 
 ## Goal
-Show progress bar and cancel/play buttons on movies that are already downloaded (persistent across sessions).
+Implement a "Confidence-Based" matching system where torrents that explicitly match the movie's year are prioritized, and torrents with no year are treated as low-confidence matches.
 
-## Current State
-- Movies stored in `database/movies_active.json` and `database/movies_building.json` as line-delimited JSON
-- Movies have: `id`, `title`, `poster`, `overview`, `year`, `rating`, `genre_ids`
-- Download info not persisted - lost after page refresh
+## Technical Tasks
 
-## Plan
+### 1. Modify `score_torrent` in `movietime`
+- [ ] **Implement Confidence Levels**:
+    - **High Confidence**: Torrent name explicitly contains the correct year $\rightarrow$ Assign a high score bonus.
+    - **Low Confidence**: Torrent name contains no year $\rightarrow$ Assign a significantly lower score or a penalty.
+    - **Wrong Match**: Torrent name contains a different year $\rightarrow$ Continue returning 0 (Reject).
+- [ ] **Rank Priority**: Ensure that any "High Confidence" match always ranks above a "Low Confidence" match, regardless of the seeder count.
 
-### 1. Backend Changes
+### 2. Refine API Queries
+- [ ] Verify that `search_apibay` and `search_magnetz` are passing the year correctly in the search query to minimize the return of unrelated versions.
 
-#### `api/start` endpoint
-- Add `movie_id` to request body from frontend
-- Find movie by `id` in building.json
-- Add `info_hash` and `status: "downloading"` to that entry
-- Call `atomic_swap_and_sync()`
-- Update building.json again (was active before swap)
-
-#### `api/status` endpoint
-- When download completes (status becomes "ready"), find movie by `info_hash` in building.json or active.json
-- Update `status: "ready"`
-
-### 2. Frontend Changes
-
-#### API call to `/api/start`
-- Include `movie_id` in request body
-
-#### Render movies
-- When rendering cards, check for `status` field in movie data
-- If `status: "ready"` → show play button immediately (no hover needed)
-- If `status: "downloading"` → show progress bar
-
-No new endpoints or files needed - use existing movie API responses which already include movie data.
+### 3. Verification & Testing
+- [ ] **Test Case**: Search for "Scarface".
+- [ ] **Verify**: Ensure the movie card for "Scarface (1932)" does NOT display torrents for the 1983 version.
+- [ ] **Verify**: Ensure the movie card for "Scarface (1983)" correctly displays its own torrents.
+- [ ] **Edge Case**: Verify that torrents with no year are still shown if they are the only available matches, but they are listed below those with the correct year.

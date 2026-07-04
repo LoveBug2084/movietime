@@ -676,6 +676,7 @@
         let currentSearchRequestId = 0;
         let searchResultsCache = [];
         let viewMode = 'all'; // 'all' or 'downloaded'
+        let libraryMovies = [];
  
  
         let searchPollInterval = null;
@@ -722,37 +723,19 @@
         }
         
         function handleGenreChange() {
-
             currentGenre = genreSelect.value;
-            const query = searchInput.value.trim();
-            
-            if (query) {
-                performSearch(query);
-            } else {
-                loadAll(1);
-            }
+            applyCurrentView();
         }
         
         function handleYearChange() {
             currentYear = yearSelect.value;
-            const query = searchInput.value.trim();
-            
-            if (query) {
-                performSearch(query);
-            } else {
-                loadAll(1);
-            }
+            applyCurrentView();
         }
+
         
         function handleRatingChange() {
             currentRating = ratingSelect.value;
-            const query = searchInput.value.trim();
-            
-            if (query) {
-                performSearch(query);
-            } else {
-                loadAll(1);
-            }
+            applyCurrentView();
         }
         
         async function toggleViewMode() {
@@ -761,35 +744,48 @@
                 viewMode = 'downloaded';
                 btn.textContent = '📚 Library';
                 btn.style.background = '#0099ff';
-                await loadDownloadedMovies();
+                
+                if (libraryMovies.length === 0) {
+                    await loadDownloadedMovies();
+                } else {
+                    applyCurrentView();
+                }
             } else {
                 viewMode = 'all';
                 btn.textContent = '📚 All';
                 btn.style.background = '#333';
-                loadAll(currentPage);
+                applyCurrentView();
             }
         }
 
         async function loadDownloadedMovies() {
-            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">Loading library...</div>';
             try {
                 const resp = await fetch('/api/downloads/list');
                 const movies = await resp.json();
-                
-                if (!movies || movies.length === 0) {
-                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888;">No downloaded movies found</div>';
-                    return;
-                }
-                
-                renderMovies(movies, 'downloaded');
-                
-                // Since this is a fixed list, update pagination to show 1 page
-                currentTotalPages = 1;
-                currentPage = 1;
-                updatePagination(1);
-                document.getElementById('movie-count').textContent = movies.length.toLocaleString() + ' Downloaded Movies';
+                libraryMovies = movies || [];
+                applyCurrentView();
             } catch (e) {
-                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #e50914;">Error loading library</div>';
+                console.error('Error loading library:', e);
+                showNotification('Error loading library', true);
+            }
+        }
+
+        function applyCurrentView() {
+            if (viewMode === 'downloaded') {
+                const filtered = sortAndFilterMovies(libraryMovies, currentSearchQuery);
+                renderMovies(filtered, 'downloaded');
+                
+                const MOVIES_PER_PAGE = 100;
+                currentTotalPages = Math.max(1, Math.ceil(filtered.length / MOVIES_PER_PAGE));
+                currentPage = 1;
+                updatePagination(currentTotalPages);
+                document.getElementById('movie-count').textContent = filtered.length.toLocaleString() + ' Downloaded Movies';
+            } else {
+                if (currentSearchQuery) {
+                    performSearch(currentSearchQuery, currentPage);
+                } else {
+                    loadAll(currentPage);
+                }
             }
         }
         
@@ -825,7 +821,10 @@
         }
         
         async function loadAll(page = 1) {
-            if (viewMode === 'downloaded') return;
+            if (viewMode === 'downloaded') {
+                applyCurrentView();
+                return;
+            }
             currentSearchRequestId++;
             cancelCurrentSearch();
             currentSource = 'popular';
@@ -1535,6 +1534,19 @@ async function playMovie(movie, source, card) {
         }
         
         async function startPlayback(infoHash) {
+            // Trigger UI progress polling
+            const card = document.querySelector(`.movie-card[data-info-hash="${infoHash}"]`);
+            if (card) {
+                if (activeCard && activeCard !== card) {
+                    activeCard.classList.remove('downloading');
+                    activeCard.classList.remove('playable');
+                }
+                activeCard = card;
+                card.classList.add('downloading');
+                if (downloadPollInterval) clearInterval(downloadPollInterval);
+                downloadPollInterval = setInterval(() => checkDownload(card, infoHash), 2000);
+            }
+
             await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback called'}) });
             try {
                 const resp = await fetch('/api/play', {
@@ -1669,7 +1681,19 @@ async function playMovie(movie, source, card) {
         }
         
         function performSearch(query, page = 1) {
-            if (viewMode === 'downloaded') return;
+            if (!query) {
+                loadAll(page);
+                return;
+            }
+
+            if (viewMode === 'downloaded') {
+                const filtered = sortAndFilterMovies(libraryMovies, query);
+                renderMovies(filtered, 'search');
+                updatePagination(1);
+                document.getElementById('movie-count').textContent = filtered.length.toLocaleString() + ' Downloaded Movies';
+                return;
+            }
+
             // Always show pagination
             const pagination = document.getElementById('pagination');
             pagination.style.display = 'flex';
@@ -1773,17 +1797,19 @@ async function playMovie(movie, source, card) {
         
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim();
-            
+            currentSearchQuery = query;
+ 
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
                 if (query.length < 2) {
                     cancelCurrentSearch();
-                    loadAll(1);
+                    applyCurrentView();
                     return;
                 }
-                performSearch(query);
-        }, 400);
+                applyCurrentView();
+            }, 400);
         });
+
         
         // Load all movies on start
         loadAll();
