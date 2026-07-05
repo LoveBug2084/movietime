@@ -936,6 +936,15 @@
             updatePagination(currentTotalPages);
         }
         
+        function getMovieUniqueKey(m) {
+            const title = (m.title || m.name || '').toLowerCase().trim();
+            const year = m.year || '';
+            const rating = m.rating || '';
+            const genres = Array.isArray(m.genre_ids) ? [...m.genre_ids].sort().join(',') : '';
+            const id = m.id || '';
+            return `${title}|${year}|${rating}|${genres}|${id}`;
+        }
+
         function renderMovies(movies, source) {
             if (downloadPollInterval) {
                 clearInterval(downloadPollInterval);
@@ -1035,12 +1044,14 @@
                      }];
                      updateCardWithTorrent(card, torrents);
                  } else if (movie.poster) {
-                     card.dataset.movieTitle = title;
-                     card.onmouseenter = () => setupTorrentHover(card, title, year);
-                     card.onmouseleave = () => clearTorrentHover(title);
-                     if (torrentCache[title]) {
-                         updateCardWithTorrent(card, torrentCache[title]);
-                     }
+                      card.dataset.movieTitle = title;
+                      const movieKey = getMovieUniqueKey(movie);
+                      card.onmouseenter = () => setupTorrentHover(card, movie);
+                      card.onmouseleave = () => clearTorrentHover(movieKey);
+                      if (torrentCache[movieKey]) {
+                          updateCardWithTorrent(card, torrentCache[movieKey]);
+                      }
+
                  }
 
                 
@@ -1067,67 +1078,11 @@
             loadDownloads();
         }
         
-        function setupTorrentHover(card, title, year) {
-            if (hoverTimeouts[title]) {
-                clearTimeout(hoverTimeouts[title]);
-            }
-            
-                hoverTimeouts[title] = setTimeout(() => {
-                    if (torrentCache[title] && torrentCache[title].length > 0 && torrentCache[title][0].size !== undefined) {
-                        updateCardWithTorrent(card, torrentCache[title]);
-                        return;
-                    }
-                    
-                    if (pendingFetches[title]) {
-                        return;
-                    }
-                    
-                const loadingEl = card.querySelector('.torrent-status');
-                if (loadingEl) {
-                    loadingEl.textContent = 'Searching...';
-                    loadingEl.className = 'torrent-status searching';
-                }
-                
-                pendingFetches[title] = true;
-                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
-                    .then(resp => {
-                        if (!resp.ok) {
-                            if (loadingEl) {
-                                loadingEl.textContent = 'No torrents';
-                                loadingEl.className = 'torrent-status error';
-                            }
-                            pendingFetches[title] = false;
-                            return;
-                        }
-                        return resp.json();
-                    })
-                    .then(data => {
-                        pendingFetches[title] = false;
-                        if (data && data.length > 0) {
-                            torrentCache[title] = data;
-                            updateCardWithTorrent(card, data);
-                        } else {
-                            if (loadingEl) {
-                                loadingEl.textContent = 'No torrents';
-                                loadingEl.className = 'torrent-status error';
-                            }
-                        }
-                    })
-                    .catch(() => {
-                        pendingFetches[title] = false;
-                        if (loadingEl) {
-                            loadingEl.textContent = 'No torrents';
-                            loadingEl.className = 'torrent-status error';
-                        }
-                    });
+        function clearTorrentHover(key) {
 
-                }, 300);
-        }
-        
-        function clearTorrentHover(title) {
-            if (hoverTimeouts[title]) {
-                clearTimeout(hoverTimeouts[title]);
-                hoverTimeouts[title] = null;
+            if (hoverTimeouts[key]) {
+                clearTimeout(hoverTimeouts[key]);
+                hoverTimeouts[key] = null;
             }
         }
         
@@ -1217,6 +1172,73 @@
                 if (bestPlayableHash) {
                     card.dataset.infoHash = bestPlayableHash;
                 }
+            }
+        }
+        
+        function setupTorrentHover(card, movie) {
+            const title = movie.title || movie.name || 'Unknown';
+            const year = movie.year || '';
+            const key = getMovieUniqueKey(movie);
+
+            if (hoverTimeouts[key]) {
+                clearTimeout(hoverTimeouts[key]);
+            }
+            
+                hoverTimeouts[key] = setTimeout(() => {
+                    if (torrentCache[key] && torrentCache[key].length > 0 && torrentCache[key][0].size !== undefined) {
+                        updateCardWithTorrent(card, torrentCache[key]);
+                        return;
+                    }
+                    
+                    if (pendingFetches[key]) {
+                        return;
+                    }
+                    
+                const loadingEl = card.querySelector('.torrent-status');
+                if (loadingEl) {
+                    loadingEl.textContent = 'Searching...';
+                    loadingEl.className = 'torrent-status searching';
+                }
+                
+                pendingFetches[key] = true;
+                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
+                    .then(resp => {
+                        if (!resp.ok) {
+                            if (loadingEl) {
+                                loadingEl.textContent = 'No torrents';
+                                loadingEl.className = 'torrent-status error';
+                            }
+                            pendingFetches[key] = false;
+                            return;
+                        }
+                        return resp.json();
+                    })
+                    .then(data => {
+                        pendingFetches[key] = false;
+                        if (data && data.length > 0) {
+                            torrentCache[key] = data;
+                            updateCardWithTorrent(card, data);
+                        } else {
+                            if (loadingEl) {
+                                loadingEl.textContent = 'No torrents';
+                                loadingEl.className = 'torrent-status error';
+                            }
+                        }
+                    })
+                    .catch(() => {
+                        pendingFetches[key] = false;
+                        if (loadingEl) {
+                            loadingEl.textContent = 'No torrents';
+                            loadingEl.className = 'torrent-status error';
+                        }
+                    });
+                }, 300);
+        }
+        
+        function clearTorrentHover(key) {
+            if (hoverTimeouts[key]) {
+                clearTimeout(hoverTimeouts[key]);
+                hoverTimeouts[key] = null;
             }
         }
         
