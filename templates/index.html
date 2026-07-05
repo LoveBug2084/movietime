@@ -295,11 +295,18 @@
             grid-row: 1;
             text-align: right;
         }
-        .movie-card .resolution-item .res-size {
-            grid-column: 1;
-            grid-row: 2;
-        }
-        .movie-card .resolution-item:hover {
+         .movie-card .resolution-item .res-size {
+             grid-column: 1;
+             grid-row: 2;
+         }
+         .movie-card .resolution-item .res-progress {
+             grid-column: 2;
+             grid-row: 2;
+             text-align: right;
+             color: #0099ff;
+         }
+         .movie-card .resolution-item:hover {
+
             background: #006699;
         }
         .movie-card .resolution-item .res-label {
@@ -1122,19 +1129,24 @@
                 const sizeBytes = parseInt(torrent.size || 0, 10);
                 size.textContent = sizeBytes > 0 ? formatSize(sizeBytes) : '';
                 
-                const seeders = document.createElement('span');
-                seeders.className = 'res-seeders';
-                const progress = torrent.progress || 0;
-                if (progress > 0) {
-                    seeders.textContent = `${progress}%`;
-                    seeders.style.color = '#0099ff';
-                } else {
-                    seeders.textContent = `${torrent.seeders || 0} seeders`;
-                }
-                
-                item.appendChild(label);
-                item.appendChild(size);
-                item.appendChild(seeders);
+                 const seeders = document.createElement('span');
+                 seeders.className = 'res-seeders';
+                 seeders.textContent = `${torrent.seeders || 0} seeders`;
+                 
+                 const progress = torrent.progress || 0;
+                 const progressEl = document.createElement('span');
+                 progressEl.className = 'res-progress';
+                 if (progress > 0) {
+                     progressEl.textContent = `${progress}%`;
+                 } else {
+                     progressEl.textContent = '';
+                 }
+                 
+                 item.appendChild(label);
+                 item.appendChild(size);
+                 item.appendChild(seeders);
+                 item.appendChild(progressEl);
+
                 
                 if (torrent.is_playable) {
                     anyPlayable = true;
