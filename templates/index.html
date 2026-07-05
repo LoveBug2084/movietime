@@ -971,6 +971,12 @@
             }
             
             movies.forEach(movie => {
+                const localMovie = libraryMovies.find(lm => lm.id === movie.id);
+                if (localMovie) {
+                    movie.info_hash = localMovie.info_hash;
+                    movie.is_playable = localMovie.is_playable;
+                    movie.progress = localMovie.progress;
+                }
                 const card = document.createElement('div');
                 card.className = 'movie-card';
                 
@@ -1040,7 +1046,21 @@
                     card.dataset.movieYear = year;
                 }
                 
-                 if (movie.seeders) {
+                 if (movie.is_playable) {
+                    updateCardWithTorrent(card, [{
+                        resolution: movie.resolution || 'Local',
+                        size: movie.size || '0',
+                        seeders: 'Local',
+                        info_hash: movie.info_hash || '',
+                        magnet: movie.magnet || '',
+                        name: movie.title || movie.name || 'Local',
+                        progress: movie.progress || 0,
+                        is_playable: true,
+                        category: 'movies'
+                    }]);
+                }
+
+                if (movie.seeders) {
                      const torrents = [{
                          resolution: movie.resolution || 'N/A',
                          size: movie.size || '0',
@@ -1821,6 +1841,9 @@ async function playMovie(movie, source, card) {
                 console.error('Open downloads error:', e);
             }
         }
+        // Initialize
+        loadAll();
+        loadDownloadedMovies();
     </script>
 </body>
 </html>

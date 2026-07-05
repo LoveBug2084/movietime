@@ -1852,7 +1852,7 @@ def api_torrent():
         all_torrents.extend(future.result())
         
     if not all_torrents:
-        return jsonify({"error": "No torrents found"}), 404
+        return jsonify([])
         
     # Deduplicate by info_hash and keep highest seeders
     unique_torrents = {}
