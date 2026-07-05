@@ -1737,43 +1737,13 @@ async function playMovie(movie, source, card) {
                 .then(data => {
                     if (requestId !== currentSearchRequestId) return;
                     
-                    const externalResults = data.combined || data.results || [];
-                    
-                    // Merge local and external results
-                    // Use a map to deduplicate by normalized title
-                    const mergedMap = new Map();
-                    
-                    // Add local matches first
-                    filteredLocal.forEach(m => {
-                        const normalized = (m.title || '').toLowerCase().trim();
-                        if (normalized) mergedMap.set(normalized, { ...m, search_source: 'cache' });
-                    });
-                    
-                    // Add/Upgrade with external results
-                    externalResults.forEach(m => {
-                        const title = m.title || m.name || '';
-                        const normalized = title.toLowerCase().trim();
-                        if (!normalized) return;
-                        
-                        if (mergedMap.has(normalized)) {
-                            // Upgrade local movie with external torrent info
-                            const local = mergedMap.get(normalized);
-                            mergedMap.set(normalized, {
-                                ...local,
-                                info_hash: m.info_hash || local.info_hash,
-                                seeders: m.seeders || local.seeders,
-                                resolution: m.resolution || local.resolution,
-                                magnet: m.magnet || local.magnet
-                            });
-                        } else {
-                            // Add as new discovery
-                            mergedMap.set(normalized, { ...m, search_source: 'external' });
-                        }
-                    });
-                    
-                    const finalResults = Array.from(mergedMap.values());
-                    
-                    // Update cache for pagination
+                     const externalResults = data.combined || data.results || [];
+                     
+                     // Combine local and external results without deduplication
+                     const finalResults = [...filteredLocal, ...externalResults];
+                     
+                     // Update cache for pagination
+
                     searchResultsCache = finalResults;
                     
                     const totalPages = Math.max(1, Math.ceil(finalResults.length / MOVIES_PER_PAGE));

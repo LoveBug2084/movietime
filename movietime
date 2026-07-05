@@ -947,7 +947,6 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
     if not search:
         return
     
-    seen_titles = set()
     combined = []
     
     # Search local cache - skip if external_only is True
@@ -960,10 +959,7 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
                 title = m.get("title", "")
                 if query_lower in title.lower():
                     m["search_source"] = "cache"
-                    normalized = title.lower().strip()
-                    if normalized not in seen_titles:
-                        seen_titles.add(normalized)
-                        combined.append(m)
+                    combined.append(m)
 
 
     # Only fetch TMDb if not local_only (cache already has TMDb data)
@@ -972,12 +968,8 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
             tmdb_results = list(search["results"])
 
         for m in tmdb_results:
-            title = m.get("title", "")
-            normalized = title.lower().strip()
-            if normalized not in seen_titles:
-                seen_titles.add(normalized)
-                m["search_source"] = "tmdb"
-                combined.append(m)
+            m["search_source"] = "tmdb"
+            combined.append(m)
 
     # Always include apibay results
     apibay_results = search_apibay(query, category, year)
@@ -1003,14 +995,11 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
     
     for m in combined_torrents:
         title = m.get("name", "")
-        normalized = title.lower().strip()
-        if normalized not in seen_titles:
-            seen_titles.add(normalized)
-            m["search_source"] = "external"
-            m["title"] = title
-            m["year"] = ""
-            m["rating"] = None
-            combined.append(m)
+        m["search_source"] = "external"
+        m["title"] = title
+        m["year"] = ""
+        m["rating"] = None
+        combined.append(m)
 
     if sort == "title":
         combined.sort(key=lambda x: (x.get("title") or "").lower())
