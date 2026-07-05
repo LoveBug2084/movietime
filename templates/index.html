@@ -1078,14 +1078,6 @@
             loadDownloads();
         }
         
-        function clearTorrentHover(key) {
-
-            if (hoverTimeouts[key]) {
-                clearTimeout(hoverTimeouts[key]);
-                hoverTimeouts[key] = null;
-            }
-        }
-        
         function updateCardWithTorrent(card, torrents) {
             const loadingEl = card.querySelector('.torrent-status');
             const listEl = card.querySelector('.resolution-list');
