@@ -105,8 +105,10 @@ new_movies_lock = threading.Lock()  # Protect new_movies file operations
 # Rate limiting: 24 req/sec = 1/24 sec between requests
 SYNC_RATE_LIMIT = 1 / 24
 
-# Adult content filtering
-ADULT_CATEGORIES = {'501', '505', '506', '699'}
+# Torrent API Cache
+TORRENT_CACHE = {"apibay": {}, "magnetz": {}}
+TORRENT_CACHE_EXPIRATION = 3600 # 1 hour
+
 
 # Async config - serial request for rate limiting
 MAX_CONCURRENT = 1
@@ -677,6 +679,14 @@ def search_apibay(query, category="all", year=""):
     }
     allowed_cats = category_map.get(category, [])
     
+    # Cache check
+    cache_key = (query, category, year)
+    now = time.time()
+    if cache_key in TORRENT_CACHE["apibay"]:
+        timestamp, results = TORRENT_CACHE["apibay"][cache_key]
+        if now - timestamp < TORRENT_CACHE_EXPIRATION:
+            return results
+
     try:
         # Append year to query for better API results if year is specified
         search_query = query
@@ -690,6 +700,7 @@ def search_apibay(query, category="all", year=""):
         
         if not results or (isinstance(results, list) and len(results) == 0):
             print(f"Empty response from apibay for query: {query}")
+            TORRENT_CACHE["apibay"][cache_key] = (now, [])
             return []
         
         torrents = []
@@ -728,6 +739,7 @@ def search_apibay(query, category="all", year=""):
         
         # Only return torrents with a positive score
         results = [t for t in torrents if t["score"] > 0][:10]
+        TORRENT_CACHE["apibay"][cache_key] = (now, results)
         return results
     except Exception as e:
         print(f"Error searching apibay: {e}")
@@ -737,6 +749,15 @@ def search_magnetz(query, category="all", year=""):
     """Search magnetz.eu for torrents with relevance scoring"""
     # Magnetz doesn't have explicit category IDs like Apibay in the search API
     # but we can filter by name if a category is specified.
+    
+    # Cache check
+    cache_key = (query, category, year)
+    now = time.time()
+    if cache_key in TORRENT_CACHE["magnetz"]:
+        timestamp, results = TORRENT_CACHE["magnetz"][cache_key]
+        if now - timestamp < TORRENT_CACHE_EXPIRATION:
+            return results
+
     try:
         # Append year to query for better API results if year is specified
         search_query = query
@@ -749,6 +770,7 @@ def search_magnetz(query, category="all", year=""):
         results = resp.json()
         
         if not results or not isinstance(results, list):
+            TORRENT_CACHE["magnetz"][cache_key] = (now, [])
             return []
             
         torrents = []
@@ -781,6 +803,7 @@ def search_magnetz(query, category="all", year=""):
         
         # Only return torrents with a positive score
         results = [t for t in torrents if t["score"] > 0][:10]
+        TORRENT_CACHE["magnetz"][cache_key] = (now, results)
         return results
     except Exception as e:
         print(f"Error searching magnetz: {e}")
@@ -972,11 +995,13 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
             combined.append(m)
 
     # Always include apibay results
-    apibay_results = search_apibay(query, category, year)
-    magnetz_results = search_magnetz(query, category, year)
+    if "external_results" not in search:
+        apibay_results = search_apibay(query, category, year)
+        magnetz_results = search_magnetz(query, category, year)
+        search["external_results"] = apibay_results + magnetz_results
     
+    all_torrents = search["external_results"]
     # Merge and deduplicate by info_hash
-    all_torrents = apibay_results + magnetz_results
     unique_torrents = {}
     for t in all_torrents:
         ih = t["info_hash"]
@@ -1261,8 +1286,7 @@ def apply_sequential_priority(handle):
     best_size = 0
 
     files = ti.files()
-    for i in range(len(files)):
-        f = files[i]
+    for i, f in enumerate(files):
         ext = os.path.splitext(f.path)[-1].lower()
         if ext in video_exts and f.size > best_size:
             best_file = i
