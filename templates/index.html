@@ -1580,6 +1580,7 @@ async function playMovie(movie, source, card) {
         }
         
         async function startPlayback(infoHash) {
+            isStreaming = true;
             // Trigger UI progress polling
             const card = document.querySelector(`.movie-card[data-info-hash="${infoHash}"]`);
             if (card) {

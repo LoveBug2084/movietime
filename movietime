@@ -767,9 +767,12 @@ def search_magnetz(query, category="all", year=""):
         url = f"https://magnetz.eu/api/magnets/search?query={search_query}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=10, headers=headers)
-        results = resp.json()
+        data = resp.json()
         
-        if not results or not isinstance(results, list):
+        # API returns {"data": [...]}
+        results = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        
+        if not results:
             TORRENT_CACHE["magnetz"][cache_key] = (now, [])
             return []
             
@@ -777,24 +780,23 @@ def search_magnetz(query, category="all", year=""):
         for r in results:
             name = r.get("name", "")
             info_hash = r.get("info_hash", "")
-            # Magnetz uses 'seeders' in its swarm object or directly
-            swarm = r.get("swarm", {})
-            seeders = swarm.get("seeders", "0") if isinstance(swarm, dict) else "0"
+            seeders = r.get("seeders", 0)
             
             if not info_hash or len(info_hash) != 40:
                 continue
                 
-            magnet = r.get("magnet") or f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
+            magnet = r.get("magnet_link") or f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
             score = score_torrent(name, query, year)
+            size = r.get("size", "0")
             
             torrents.append({
                 "name": name,
                 "info_hash": info_hash,
                 "seeders": str(seeders),
                 "magnet": magnet,
-                "category": "all", # Magnetz search is general
+                "category": "all",
                 "resolution": extract_resolution(name),
-                "size": r.get("size", "0"),
+                "size": str(size),
                 "score": score
             })
             
@@ -959,12 +961,12 @@ def start_search_background(search_id, query, sort, category, year=""):
             except Exception as e:
                 print(f"Error collecting search results: {e}")
 
-    # Final full rebuild with cache + apibay + dedup + sort (only once)
+    # Final full rebuild with cache + magnetz + dedup + sort (only once)
     if search_id in active_searches and not search.get("cancelled"):
         rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year=year)
 
 def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False, year=""):
-    """Full rebuild with cache + apibay (skip TMDb if local_only=True, skip cache if external_only=True)"""
+    """Full rebuild with cache + magnetz (skip TMDb if local_only=True, skip cache if external_only=True)"""
     global active_searches
     search = active_searches.get(search_id)
     if not search:
@@ -994,11 +996,12 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
             m["search_source"] = "tmdb"
             combined.append(m)
 
-    # Always include apibay results
+    # Always include external results
     if "external_results" not in search:
-        apibay_results = search_apibay(query, category, year)
+        # apibay is offline - disabled
+        # apibay_results = search_apibay(query, category, year)
         magnetz_results = search_magnetz(query, category, year)
-        search["external_results"] = apibay_results + magnetz_results
+        search["external_results"] = magnetz_results
     
     all_torrents = search["external_results"]
     # Merge and deduplicate by info_hash
@@ -1456,7 +1459,9 @@ def api_search():
     MOVIES_PER_PAGE = 100
     
     if category in ["tv", "music", "adult", "movies"]:
-        all_results = search_apibay(query, category, year)
+        # apibay is offline - disabled
+        # all_results = search_apibay(query, category, year)
+        all_results = search_magnetz(query, category, year)
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
         start_idx = (page - 1) * MOVIES_PER_PAGE
@@ -1466,7 +1471,7 @@ def api_search():
             "page": page,
             "total_pages": total_pages,
             "total_results": total_results,
-            "sources": {"apibay": total_results},
+            "sources": {"magnetz": total_results},
             "streaming": False
         })
     
@@ -1500,7 +1505,7 @@ def api_search():
             "streaming": False
         })
     
-    # Search - default to local-only (cache + apibay), skip TMDb
+    # Search - default to local-only (cache + magnetz), skip TMDb
     local_only = request.args.get("local", "1") != "0"
     import uuid
     search_id = str(uuid.uuid4())
@@ -1583,7 +1588,7 @@ def api_search():
         "sources": {
             "cache": 0,
             "tmdb": total_results,
-            "apibay": 0
+            "magnetz": 0
         }
     })
 
@@ -1618,11 +1623,11 @@ def api_search():
             "streaming": False
         })
 
-    # Search - default to local-only (cache + apibay), skip TMDb
+    # Search - default to local-only (cache + magnetz), skip TMDb
     local_only = request.args.get("local", "1") != "0"
     import uuid
     search_id = str(uuid.uuid4())
-
+    
     # Get total database count
     cache_data = load_cached_movies()
     total_database = len(cache_data.get("movies", [])) if cache_data else 0
@@ -1701,7 +1706,7 @@ def api_search():
         "sources": {
             "cache": 0,
             "tmdb": total_results,
-            "apibay": 0
+            "magnetz": 0
         }
     })
 
@@ -1858,16 +1863,16 @@ def api_downloads_list():
 
 @app.route("/api/torrent")
 def api_torrent():
-    """Get torrent info for a movie (searches apibay and magnetz)"""
+    """Get torrent info for a movie (searches magnetz)"""
     query = request.args.get("q", "").strip()
     category = request.args.get("category", "all").strip()
     year = request.args.get("year", "").strip()
     if not query:
         return jsonify({"error": "No query"}), 400
     
-    # Search both providers in parallel
+    # Search magnetz (apibay is offline)
     futures = {
-        executor.submit(search_apibay, query, category, year): "apibay",
+        # executor.submit(search_apibay, query, category, year): "apibay",
         executor.submit(search_magnetz, query, category, year): "magnetz"
     }
     
