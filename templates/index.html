@@ -1225,7 +1225,8 @@
                 }
                 
                 pendingFetches[key] = true;
-                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}`)
+                const tmdbId = movie.id || '';
+                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}&tmdb_id=${encodeURIComponent(tmdbId)}`)
                     .then(resp => {
                         if (!resp.ok) {
                             if (loadingEl) {
@@ -1411,7 +1412,8 @@ async function playMovie(movie, source, card) {
             } else {
                 const query = movie.title;
                 const year = movie.year || card.dataset.movieYear || '';
-                const torrentResp = await fetch(`/api/torrent?q=${encodeURIComponent(query)}&category=${currentCategory}&year=${encodeURIComponent(year)}`);
+                const tmdbId = movie.id || '';
+                const torrentResp = await fetch(`/api/torrent?q=${encodeURIComponent(query)}&category=${currentCategory}&year=${encodeURIComponent(year)}&tmdb_id=${encodeURIComponent(tmdbId)}`);
                 
                 if (!torrentResp.ok) {
                     return;

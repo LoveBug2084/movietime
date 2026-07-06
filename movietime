@@ -1823,22 +1823,36 @@ def api_downloads_list():
             continue
             
         matched_movie = None
-        # 1. Direct ID Lookup (Instant)
+        # Extract year from torrent name for matching
+        torrent_name_lower = torrent_name.lower()
+        torrent_year = ""
+        year_match = re.search(r'\b(19\d\d|20\d\d)\b', torrent_name)
+        if year_match:
+            torrent_year = year_match.group(1)
+            
+        # 1. Direct ID Lookup (Instant) — validate year if available
         tmdb_id = status.get("tmdb_id")
         if tmdb_id and tmdb_id in movie_id_map:
             matched_movie = movie_id_map[tmdb_id]
-        else:
-            # 2. Fallback: Match by name (Slow, but only done once)
-            torrent_name_lower = torrent_name.lower()
+            movie_year = matched_movie.get("year", "")
+            if torrent_year and movie_year and torrent_year != movie_year:
+                matched_movie = None  # Year mismatch, force re-match
+
+        if matched_movie is None:
+            # 2. Fallback: Match by name and year (Slow, but only done once)
             for m in sorted_movies:
                 title = m.get("title", "").lower()
-                if title and title in torrent_name_lower:
-                    matched_movie = m
-                    # Save the ID so next time is instant
-                    current_status = status.copy()
-                    current_status["tmdb_id"] = matched_movie["id"]
-                    save_torrent_status(info_hash, current_status)
-                    break
+                if not title or title not in torrent_name_lower:
+                    continue
+                movie_year = m.get("year", "")
+                if torrent_year and movie_year and torrent_year != movie_year:
+                    continue
+                matched_movie = m
+                # Save the ID so next time is instant
+                current_status = status.copy()
+                current_status["tmdb_id"] = matched_movie["id"]
+                save_torrent_status(info_hash, current_status)
+                break
         
         if matched_movie:
             movie_obj = matched_movie.copy()
@@ -1859,7 +1873,23 @@ def api_downloads_list():
                 "is_playable": status.get("is_playable", False)
             })
 
-    return jsonify(downloaded_movies)
+    # Deduplicate by movie ID: keep the best entry per movie
+    seen_ids = {}
+    deduped = []
+    for m in downloaded_movies:
+        mid = m.get("id")
+        if mid is None:
+            deduped.append(m)
+        elif mid not in seen_ids:
+            seen_ids[mid] = len(deduped)
+            deduped.append(m)
+        else:
+            existing = deduped[seen_ids[mid]]
+            existing_progress = existing.get("progress", 0) or 0
+            current_progress = m.get("progress", 0) or 0
+            if current_progress > existing_progress:
+                deduped[seen_ids[mid]] = m
+    return jsonify(deduped)
 
 @app.route("/api/torrent")
 def api_torrent():
@@ -1867,6 +1897,7 @@ def api_torrent():
     query = request.args.get("q", "").strip()
     category = request.args.get("category", "all").strip()
     year = request.args.get("year", "").strip()
+    tmdb_id_param = request.args.get("tmdb_id", "").strip()
     if not query:
         return jsonify({"error": "No query"}), 400
     
@@ -1901,12 +1932,11 @@ def api_torrent():
         ih = t["info_hash"]
         status = get_torrent_status(ih)
         
-        # If status file is missing or lacks a magnet/name, heal it
+        # Heal missing/incomplete status files
         if not status or not status.get("magnet") or not status.get("name"):
             if os.path.isdir(os.path.join(DOWNLOAD_DIR, ih)):
                 log_debug(f"[DEBUG torrent] Healing status file for {ih}")
                 current_status = status or {}
-                # Preserve progress and playability if they existed
                 updated_status = {
                     "progress": current_status.get("progress", 0),
                     "downloaded_bytes": current_status.get("downloaded_bytes", 0),
@@ -1917,8 +1947,26 @@ def api_torrent():
                     "magnet": t["magnet"],
                     "name": t["name"]
                 }
+                if tmdb_id_param:
+                    updated_status["tmdb_id"] = int(tmdb_id_param)
                 save_torrent_status(ih, updated_status)
                 status = updated_status
+        
+        # Self-heal tmdb_id on hover (even if status exists)
+        if tmdb_id_param and os.path.isdir(os.path.join(DOWNLOAD_DIR, ih)):
+            try:
+                desired = int(tmdb_id_param)
+            except ValueError:
+                desired = None
+            if desired is not None:
+                current_tmdb = status.get("tmdb_id") if status else None
+                if current_tmdb != desired:
+                    log_debug(f"[DEBUG torrent] Self-healing tmdb_id for {ih}: {current_tmdb} -> {desired}")
+                    if status:
+                        status["tmdb_id"] = desired
+                        save_torrent_status(ih, status)
+                    else:
+                        save_torrent_status(ih, {"tmdb_id": desired})
         
         # Use the stored progress directly from the status file
         if status:
