@@ -350,13 +350,13 @@
         }
         .movie-card .download-bar .dl-progress-track .dl-progress-fill {
             height: 100%;
-            background: #ff9900;
+            background: #2ecc71;
             border-radius: 5px;
             transition: width 0.3s ease;
             width: 0%;
         }
-        .movie-card .download-bar .dl-progress-track .dl-progress-fill.blue {
-            background: #0099ff;
+        .movie-card .download-bar .dl-progress-track .dl-progress-fill.header-stage {
+            background: #ff9900;
         }
         .movie-card .download-bar .dl-progress-track .dl-percent-text {
             position: absolute;
@@ -953,6 +953,9 @@
         }
 
         function renderMovies(movies, source) {
+            const wasStreaming = isStreaming;
+            const wasPolling = downloadPollInterval !== null;
+            const prevInfoHash = activeCard ? activeCard.dataset.infoHash : null;
             if (downloadPollInterval) {
                 clearInterval(downloadPollInterval);
                 downloadPollInterval = null;
@@ -1100,6 +1103,17 @@
                 grid.appendChild(card);
             });
             
+            // Re-enable progress polling on the new card if a download was in progress
+            if (wasPolling && prevInfoHash) {
+                const card = document.querySelector(`.movie-card[data-info-hash="${prevInfoHash}"]`);
+                if (card) {
+                    isStreaming = wasStreaming;
+                    activeCard = card;
+                    card.classList.add('downloading');
+                    downloadPollInterval = setInterval(() => checkDownload(card, prevInfoHash), 2000);
+                }
+            }
+
             // Check if there's an active download/playback and show play button
             checkPlayable();
             loadDownloads();
@@ -1139,6 +1153,7 @@
             movieTorrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
+                item.dataset.infoHash = torrent.info_hash || '';
                 
                 const label = document.createElement('span');
                 label.className = 'res-label';
@@ -1293,16 +1308,17 @@
                                 if (downloaded < HEADER_MIN_SIZE) {
                                     displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
                                 } else {
-                                    const fileSize = parseInt(c.dataset.fileSize) || 1;
+                                    const fileSize = parseInt(data.total_size);
+                                    if (!fileSize) break;
                                     displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                                 }
                                 const fill = c.querySelector('.dl-progress-fill');
                                 const text = c.querySelector('.dl-percent-text');
                                 if (fill) {
                                     if (downloaded < HEADER_MIN_SIZE) {
-                                        fill.classList.add('blue');
+                                        fill.classList.add('header-stage');
                                     } else {
-                                        fill.classList.remove('blue');
+                                        fill.classList.remove('header-stage');
                                     }
                                     fill.style.width = displayPercent + '%';
                                 }
@@ -1359,7 +1375,6 @@
             activeCard = card;
             card.classList.add('downloading');
             card.dataset.infoHash = torrent.info_hash;
-            card.dataset.fileSize = torrent.size || 0;
             
             try {
                 const resp = await fetch('/api/start', {
@@ -1378,6 +1393,12 @@
                 
                 console.log('Download started successfully');
                 downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
+                // Move this torrent to the top of the resolution list
+                const resItem = card.querySelector(`.resolution-item[data-info-hash="${torrent.info_hash}"]`);
+                if (resItem) {
+                    const listEl = card.querySelector('.resolution-list');
+                    if (listEl) listEl.prepend(resItem);
+                }
             } catch (e) {
                 console.error('Fetch error:', e);
                 card.classList.remove('downloading');
@@ -1428,7 +1449,6 @@ async function playMovie(movie, source, card) {
                 magnet = best.magnet;
                 info_hash = best.info_hash;
                 name = best.name;
-                card.dataset.fileSize = best.size || 0;
             }
             
             // Check if this exact torrent is already downloading/ready (reuse status from earlier if same info_hash)
@@ -1515,6 +1535,14 @@ async function playMovie(movie, source, card) {
                 card.classList.add('playable');
                 dlPlay.classList.add('ready');
 
+                // Update resolution list progress for this hash
+                const readyItems = card.querySelectorAll(`.resolution-item[data-info-hash="${expectedInfoHash}"]`);
+                readyItems.forEach(item => {
+                    const progEl = item.querySelector('.res-progress');
+                    if (progEl) progEl.textContent = '100%';
+                    item.title = 'Ready to play';
+                });
+
                 if (downloadPollInterval) {
                     clearInterval(downloadPollInterval);
                     downloadPollInterval = null;
@@ -1538,16 +1566,24 @@ async function playMovie(movie, source, card) {
                 if (downloaded < HEADER_MIN_SIZE) {
                     // Stage 1: Show progress toward 100MB threshold
                     displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
-                    progressFill.classList.add('blue');
+                    progressFill.classList.add('header-stage');
                 } else {
                     // Stage 2: Show actual download progress relative to video file size
-                    const fileSize = parseInt(card.dataset.fileSize) || 1;
+                    const fileSize = parseInt(data.total_size);
+                    if (!fileSize) return;
                     displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
-                    progressFill.classList.remove('blue');
+                    progressFill.classList.remove('header-stage');
                 }
 
                 percentText.textContent = displayPercent + '%';
                 progressFill.style.width = displayPercent + '%';
+
+                // Update resolution list progress for this hash
+                const dlItems = card.querySelectorAll(`.resolution-item[data-info-hash="${expectedInfoHash}"]`);
+                dlItems.forEach(item => {
+                    const progEl = item.querySelector('.res-progress');
+                    if (progEl) progEl.textContent = displayPercent + '%';
+                });
 
                 // Check playable status via backend API (100MB + header ready)
                 if (!isStreaming) {

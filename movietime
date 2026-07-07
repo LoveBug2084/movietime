@@ -1968,7 +1968,6 @@ def api_torrent():
                     else:
                         save_torrent_status(ih, {"tmdb_id": desired})
         
-        # Use the stored progress directly from the status file
         if status:
             t["progress"] = status.get("progress", 0)
             t["is_playable"] = status.get("is_playable", False)
@@ -1976,18 +1975,12 @@ def api_torrent():
             t["progress"] = 0
             t["is_playable"] = False
 
-
-        # Update the response object with the latest status
-        if status:
-            t["progress"] = status.get("progress", 0)
-            t["is_playable"] = status.get("is_playable", False)
-        else:
-            t["progress"] = 0
-            t["is_playable"] = False
-
-
-    # Sort by score then seeders
-    final_torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+    # Sort: downloaded/progress first, then score, then seeders
+    final_torrents.sort(key=lambda t: (
+        1 if (t.get("progress") or 0) > 0 else 0,
+        t["score"],
+        int(t["seeders"]) if t["seeders"].isdigit() else 0
+    ), reverse=True)
     
     return jsonify(final_torrents)
 
@@ -2086,6 +2079,7 @@ def api_status():
             return jsonify({
                 "status": "downloading",
                 "downloaded_size": downloaded,
+                "total_size": status.total_wanted,
                 "is_valid": valid,
                 "complete": is_complete,
                 "info_hash": current_download.get("info_hash"),
@@ -2094,6 +2088,7 @@ def api_status():
             return jsonify({
                 "status": "downloading",
                 "downloaded_size": downloaded,
+                "total_size": status.total_wanted,
                 "is_valid": False,
                 "complete": is_complete,
                 "info_hash": current_download.get("info_hash"),
