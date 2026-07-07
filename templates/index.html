@@ -974,7 +974,13 @@
             }
             
             movies.forEach(movie => {
-                const localMovie = libraryMovies.find(lm => lm.id === movie.id);
+                const localMovie = libraryMovies.filter(lm => lm.id === movie.id).sort((a, b) => {
+                    if (a.is_playable !== b.is_playable) return (b.is_playable ? 1 : 0) - (a.is_playable ? 1 : 0);
+                    const aActive = a.dl_status === 'downloading' ? 1 : 0;
+                    const bActive = b.dl_status === 'downloading' ? 1 : 0;
+                    if (aActive !== bActive) return bActive - aActive;
+                    return (b.last_updated || 0) - (a.last_updated || 0);
+                })[0];
                 if (localMovie) {
                     movie.info_hash = localMovie.info_hash;
                     movie.is_playable = localMovie.is_playable;
@@ -1085,21 +1091,22 @@
                  }
 
                 
-                card.onclick = async (e) => {
-                    if (e.target.closest('.resolution-item')) return;
-                    const statusResp = await fetch('/api/status');
-                    const statusData = await statusResp.json();
-                    // Allow play if: ready with file exists (don't block on info_hash comparison)
-                    if (statusData.status === 'ready' && statusData.file) {
-                        startPlayback(card.dataset.infoHash);
-                        return;
-                    }
-                    // Allow play if no active download OR same torrent
-                    if (statusData.status === 'downloading') {
-                        if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
-                    }
-                    playMovie(movie, source, card);
-                };
+                 card._playMovie = () => playMovie(movie, source, card);
+                 card.onclick = async (e) => {
+                     if (e.target.closest('.resolution-item')) return;
+                     const statusResp = await fetch('/api/status');
+                     const statusData = await statusResp.json();
+                     // Allow play if: ready with file exists (don't block on info_hash comparison)
+                     if (statusData.status === 'ready' && statusData.file) {
+                         startPlayback(card.dataset.infoHash);
+                         return;
+                     }
+                     // Allow play if no active download OR same torrent
+                     if (statusData.status === 'downloading') {
+                         if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                     }
+                     card._playMovie();
+                 };
                 grid.appendChild(card);
             });
             
@@ -1212,6 +1219,7 @@
                     card.dataset.infoHash = bestPlayableHash;
                 }
             }
+
         }
         
         function setupTorrentHover(card, movie) {
@@ -1421,6 +1429,11 @@ async function playMovie(movie, source, card) {
                 startPlayback(cardInfoHash);
                 return;
             }
+            // No active download but card has an info_hash — try playing the existing file
+            if (cardInfoHash && statusData.status === 'idle' && !statusData.info_hash) {
+                startPlayback(cardInfoHash);
+                return;
+            }
             
             if (movie.magnet && movie.info_hash) {
                 magnet = movie.magnet;
@@ -1516,8 +1529,6 @@ async function playMovie(movie, source, card) {
             const resp = await fetch('/api/status');
             const data = await resp.json();
 
-            console.log('Status:', data);
-
             if (data.info_hash && expectedInfoHash && data.info_hash !== expectedInfoHash) {
                 return;
             }
@@ -1603,10 +1614,14 @@ async function playMovie(movie, source, card) {
 
         async function startPlaybackFromCard(event) {
             const card = event.target.closest('.movie-card');
-            if (card && card.dataset.infoHash) {
+            if (!card) return;
+            const hash = card.dataset.infoHash;
+            if (hash) {
                 card.classList.add('playable');
                 card.querySelector('.dl-play').classList.add('ready');
-                startPlayback(card.dataset.infoHash);
+                startPlayback(hash);
+            } else if (card._playMovie) {
+                card._playMovie();
             }
         }
         
@@ -1632,7 +1647,6 @@ async function playMovie(movie, source, card) {
                 downloadPollInterval = setInterval(() => checkDownload(card, infoHash), 2000);
             }
 
-            await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback called'}) });
             try {
                 const resp = await fetch('/api/play', {
                     method: 'POST',
@@ -1640,7 +1654,6 @@ async function playMovie(movie, source, card) {
                     body: JSON.stringify({info_hash: infoHash})
                 });
                 const data = await resp.json();
-                await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback resp: ' + resp.status + ' ' + JSON.stringify(data)}) });
                 
                 if (!resp.ok) {
                     showNotification(data.error, true);
@@ -1648,7 +1661,7 @@ async function playMovie(movie, source, card) {
                     checkPlayable();
                 }
             } catch (e) {
-                await fetch('/api/debug', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({msg: 'startPlayback error: ' + e.message}) });
+                showNotification('Playback error: ' + e.message, true);
             }
         }
         
@@ -1657,22 +1670,24 @@ async function playMovie(movie, source, card) {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
-                // Remove playable class and play button from all cards first
-                document.querySelectorAll('.movie-card.playable').forEach(c => {
-                    c.classList.remove('playable');
-                    const btn = c.querySelector('.dl-play');
-                    if (btn) btn.classList.remove('ready');
-                });
-
-                if ((data.status === 'ready' || data.status === 'downloading') && data.info_hash) {
-                    const cards = document.querySelectorAll('.movie-card');
-                    cards.forEach(card => {
-                        if (card.dataset.infoHash === data.info_hash) {
-                            card.classList.add('playable');
-                            const btn = card.querySelector('.dl-play');
-                            if (btn) btn.classList.add('ready');
-                        }
+                if (data.status === 'ready' || data.status === 'downloading') {
+                    // Remove playable class and play button from all cards first
+                    document.querySelectorAll('.movie-card.playable').forEach(c => {
+                        c.classList.remove('playable');
+                        const btn = c.querySelector('.dl-play');
+                        if (btn) btn.classList.remove('ready');
                     });
+
+                    if (data.info_hash) {
+                        const cards = document.querySelectorAll('.movie-card');
+                        cards.forEach(card => {
+                            if (card.dataset.infoHash === data.info_hash) {
+                                card.classList.add('playable');
+                                const btn = card.querySelector('.dl-play');
+                                if (btn) btn.classList.add('ready');
+                            }
+                        });
+                    }
                 }
             } catch (e) {}
         }
