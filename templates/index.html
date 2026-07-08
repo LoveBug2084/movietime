@@ -1170,7 +1170,8 @@
                 
                 const label = document.createElement('span');
                 label.className = 'res-label';
-                label.textContent = torrent.resolution || 'N/A';
+                const src = torrent.source || '';
+                label.textContent = (src ? src + ' ' : '') + (torrent.resolution || 'N/A');
                 
                 const size = document.createElement('span');
                 size.className = 'res-size';
@@ -1692,7 +1693,7 @@ async function playMovie(movie, source, card) {
         window.pyqt = null;
         
         async function cancelDownload() {
-            await fetch('/api/play/stop', { method: 'POST' }).catch(() => {});
+            await fetch('/api/cancel', { method: 'POST' }).catch(() => {});
             if (downloadPollInterval) {
                 clearInterval(downloadPollInterval);
                 downloadPollInterval = null;

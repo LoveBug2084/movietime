@@ -686,7 +686,7 @@ def search_apibay(query, category="all", year=""):
         if year and year.isdigit() and len(year) == 4:
             search_query = f"{query} {year}"
             
-        url = f"https://apibay.org/q.php?q={search_query}"
+        url = f"https://apibay.org/q.php?q={search_query.replace(' ', '+')}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=10, headers=headers)
         results = resp.json()
@@ -720,7 +720,8 @@ def search_apibay(query, category="all", year=""):
                     "category": cat,
                     "resolution": extract_resolution(name),
                     "size": r.get("size", "0"),
-                    "score": score
+                    "score": score,
+                    "source": "apibay"
                 })
         
         # Sort by score descending, then by seeders
@@ -786,7 +787,8 @@ def search_magnetz(query, category="all", year=""):
                 "category": "all",
                 "resolution": extract_resolution(name),
                 "size": str(size),
-                "score": score
+                "score": score,
+                "source": "magnetz"
             })
             
         # Sort by score descending, then by seeders
@@ -987,10 +989,9 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
 
     # Always include external results
     if "external_results" not in search:
-        # apibay is offline - disabled
-        # apibay_results = search_apibay(query, category, year)
+        apibay_results = search_apibay(query, category, year)
         magnetz_results = search_magnetz(query, category, year)
-        search["external_results"] = magnetz_results
+        search["external_results"] = apibay_results + magnetz_results
     
     all_torrents = search["external_results"]
     # Merge and deduplicate by info_hash
@@ -1472,9 +1473,7 @@ def api_search():
     MOVIES_PER_PAGE = 100
     
     if category in ["tv", "music", "adult", "movies"]:
-        # apibay is offline - disabled
-        # all_results = search_apibay(query, category, year)
-        all_results = search_magnetz(query, category, year)
+        all_results = search_apibay(query, category, year) + search_magnetz(query, category, year)
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
         start_idx = (page - 1) * MOVIES_PER_PAGE
@@ -1935,9 +1934,8 @@ def api_torrent():
     if not query:
         return jsonify({"error": "No query"}), 400
     
-    # Search magnetz (apibay is offline)
     futures = {
-        # executor.submit(search_apibay, query, category, year): "apibay",
+        executor.submit(search_apibay, query, category, year): "apibay",
         executor.submit(search_magnetz, query, category, year): "magnetz"
     }
     
@@ -2156,6 +2154,17 @@ def api_status():
         valid = is_valid_video_file(video_file)
         if valid:
             ih = current_download.get("info_hash")
+            # Check if the file is actually fully downloaded
+            status_data = get_torrent_status(ih) if ih else None
+            if status_data and status_data.get("progress", 0) < 100:
+                return jsonify({
+                    "status": "downloading",
+                    "downloaded_size": status_data.get("downloaded_bytes", file_size),
+                    "total_size": status_data.get("total_bytes", file_size),
+                    "is_valid": valid,
+                    "complete": False,
+                    "info_hash": ih,
+                })
             return jsonify({
                 "status": "ready",
                 "file": video_file,
@@ -2217,28 +2226,39 @@ def api_play():
         is_active = current_download.get("info_hash") == info_hash
  
     if not is_active:
-        # Check if file already exists and is valid before re-starting download
         video_file = find_video_file(info_hash)
+        status = get_torrent_status(info_hash)
+
+        # Resume incomplete downloads in background even if the file is playable
+        resume_download = False
+        if status and status.get("magnet") and status.get("name"):
+            progress = status.get("progress", 0)
+            is_complete = status.get("status") == "completed"
+            if not is_complete or progress < 100:
+                resume_download = True
+
         if video_file and is_valid_video_file(video_file):
-            status = get_torrent_status(info_hash)
             with download_lock:
                 current_download["handle"] = None
                 current_download["info_hash"] = info_hash
                 current_download["video_file"] = video_file
                 if status:
                     current_download["name"] = status.get("name", "")
+            if resume_download:
+                threading.Thread(
+                    target=download_torrent,
+                    args=(status["magnet"], info_hash, status["name"]),
+                    daemon=True
+                ).start()
         else:
-            # Try to resume from status file
-            status = get_torrent_status(info_hash)
-            if status and status.get("magnet") and status.get("name"):
+            if resume_download:
                 threading.Thread(
                     target=download_torrent, 
                     args=(status["magnet"], info_hash, status["name"]), 
                     daemon=True
                 ).start()
-                # Give it a small moment to initialize in the session
                 time.sleep(0.2)
-                video_file = None  # Reset so we search again after potential init
+                video_file = None
  
     video_file = find_video_file(info_hash)
  
@@ -2311,6 +2331,41 @@ def api_play_stop():
             mpv_player["process"] = None
             mpv_player["playing"] = False
     return jsonify({"status": "stopped"})
+
+@app.route("/api/cancel", methods=["POST"])
+def api_cancel():
+    """Cancel current download: stop mpv, remove torrent from session, keep files"""
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+            mpv_player["process"] = None
+            mpv_player["playing"] = False
+
+    with download_lock:
+        handle = current_download.get("handle")
+        info_hash = current_download.get("info_hash")
+        name = current_download.get("name")
+
+        if info_hash:
+            status_data = get_torrent_status(info_hash) or {}
+            status_data["status"] = "paused"
+            status_data["last_updated"] = time.time()
+            save_torrent_status(info_hash, status_data)
+
+        if handle and handle.is_valid():
+            try:
+                lt_session.remove_torrent(handle, False)
+            except:
+                pass
+
+        current_download["handle"] = None
+        current_download["video_file"] = None
+
+    return jsonify({"status": "cancelled"})
 
 @app.route("/api/open-downloads", methods=["POST"])
 def api_open_downloads():
