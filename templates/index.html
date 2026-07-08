@@ -1060,6 +1060,10 @@
                     card.dataset.movieYear = year;
                 }
                 
+                if (movie.id) {
+                    card.dataset.movieId = movie.id;
+                }
+                
                  if (movie.is_playable) {
                     updateCardWithTorrent(card, [{
                         resolution: movie.resolution || 'Local',
@@ -1136,10 +1140,7 @@
             const listEl = card.querySelector('.resolution-list');
             if (!listEl) return;
             
-            const adultCategories = ['501', '505', '506', '699'];
-            const movieTorrents = torrents.filter(t => !adultCategories.includes(t.category));
-            
-            if (movieTorrents.length === 0) {
+            if (torrents.length === 0) {
                 if (loadingEl) {
                     loadingEl.textContent = 'No torrents';
                     loadingEl.className = 'torrent-status error';
@@ -1149,7 +1150,7 @@
                 return;
             }
             
-            if (listEl.children.length === movieTorrents.length) return;
+            if (listEl.children.length === torrents.length) return;
             
             if (loadingEl) loadingEl.textContent = '';
             
@@ -1162,7 +1163,7 @@
             listEl.innerHTML = '';
             let anyPlayable = false;
             let bestPlayableHash = null;
-            movieTorrents.forEach(torrent => {
+            torrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
                 item.dataset.infoHash = torrent.info_hash || '';
@@ -1378,10 +1379,11 @@
             card.dataset.infoHash = torrent.info_hash;
             
             try {
+                const tmdbId = card.dataset.movieId || '';
                 const resp = await fetch('/api/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ magnet: torrent.magnet, info_hash: torrent.info_hash, name: torrent.name })
+                    body: JSON.stringify({ magnet: torrent.magnet, info_hash: torrent.info_hash, name: torrent.name, tmdb_id: tmdbId })
                 });
                 
                 if (!resp.ok) {
@@ -1499,10 +1501,11 @@ async function playMovie(movie, source, card) {
             card.dataset.infoHash = info_hash;
             isStreaming = false;
             
+            const tmdbId = card.dataset.movieId || movie.id || '';
             await fetch('/api/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({magnet, info_hash, name})
+                body: JSON.stringify({magnet, info_hash, name, tmdb_id: tmdbId})
             });
             
             downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);

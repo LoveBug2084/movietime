@@ -703,10 +703,6 @@ def search_apibay(query, category="all", year=""):
             seeders = r.get("seeders", "0")
             cat = r.get("category", "")
             
-            # Adult filter
-            if cat in ADULT_CATEGORIES:
-                continue
-                
             if allowed_cats and cat not in allowed_cats:
                 continue
             
@@ -1077,7 +1073,9 @@ current_download = {
     "handle": None,
     "info_hash": None,
     "name": None,
+    "magnet": None,
     "video_file": None,
+    "tmdb_id": None,
 }
 
 # mpv player state
@@ -1125,6 +1123,11 @@ def download_torrent(magnet_link, info_hash, name):
         current_download["name"] = name
         current_download["magnet"] = magnet_link
         current_download["video_file"] = None
+        # Preserve tmdb_id if already set
+        if not current_download.get("tmdb_id"):
+            existing_status = get_torrent_status(info_hash)
+            if existing_status and existing_status.get("tmdb_id"):
+                current_download["tmdb_id"] = existing_status["tmdb_id"]
 
 
     # For magnet links, metadata must be downloaded first.
@@ -1276,7 +1279,8 @@ def update_active_download_status_loop():
                     "is_playable": is_playable,
                     "last_updated": time.time(),
                     "magnet": current_download.get("magnet"),
-                    "name": current_download.get("name")
+                    "name": current_download.get("name"),
+                    "tmdb_id": current_download.get("tmdb_id")
                 })
                 last_progress[info_hash] = progress
 
@@ -1841,6 +1845,11 @@ def api_downloads_list():
             
         # 1. Direct ID Lookup (Instant) — validate year if available
         tmdb_id = status.get("tmdb_id")
+        if tmdb_id:
+            try:
+                tmdb_id = int(tmdb_id)
+            except (ValueError, TypeError):
+                tmdb_id = None
         if tmdb_id and tmdb_id in movie_id_map:
             matched_movie = movie_id_map[tmdb_id]
             movie_year = matched_movie.get("year", "")
@@ -1851,7 +1860,13 @@ def api_downloads_list():
             # 2. Fallback: Match by name and year (Slow, but only done once)
             for m in sorted_movies:
                 title = m.get("title", "").lower()
-                if not title or title not in torrent_name_lower:
+                if not title:
+                    continue
+                title_norm = re.sub(r'[^\w\s]', '', title)
+                if not title_norm.strip():
+                    continue
+                torrent_norm = re.sub(r'[^\w\s]', '', torrent_name_lower)
+                if title_norm not in torrent_norm:
                     continue
                 movie_year = m.get("year", "")
                 if torrent_year and movie_year and torrent_year != movie_year:
@@ -2017,9 +2032,22 @@ def api_start():
     magnet = data.get("magnet")
     info_hash = data.get("info_hash")
     name = data.get("name", "")
+    tmdb_id = data.get("tmdb_id")
 
     if not magnet:
         return jsonify({"error": "No magnet link"}), 400
+
+    with download_lock:
+        if tmdb_id:
+            try:
+                tmdb_id_int = int(tmdb_id)
+                current_download["tmdb_id"] = tmdb_id_int
+                # Save to status file immediately so it's available from the start
+                existing = get_torrent_status(info_hash) or {}
+                existing["tmdb_id"] = tmdb_id_int
+                save_torrent_status(info_hash, existing)
+            except (ValueError, TypeError):
+                pass
 
     threading.Thread(target=download_torrent, args=(magnet, info_hash, name)).start()
 
