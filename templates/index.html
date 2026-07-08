@@ -1227,6 +1227,21 @@
                 }
             }
 
+            let bestProgress = 0;
+            torrents.forEach(t => {
+                const p = parseInt(t.progress || 0, 10);
+                if (p > bestProgress) bestProgress = p;
+            });
+            if (bestProgress > 0) {
+                const fill = card.querySelector('.dl-progress-fill');
+                const text = card.querySelector('.dl-percent-text');
+                if (fill) fill.style.width = bestProgress + '%';
+                if (text) text.textContent = bestProgress + '%';
+                if (!anyPlayable) {
+                    card.classList.add('downloading');
+                }
+            }
+
         }
         
         function setupTorrentHover(card, movie) {
@@ -1474,7 +1489,7 @@ async function playMovie(movie, source, card) {
                 card.classList.add('downloading');
                 card.dataset.infoHash = info_hash;
                 
-                if (statusData.status === 'ready') {
+                if (statusData.status === 'ready' || (statusData.status === 'downloading' && statusData.is_valid)) {
                     startPlayback(info_hash);
                 } else {
                     downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);

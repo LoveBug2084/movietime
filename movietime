@@ -2364,6 +2364,7 @@ def api_cancel():
 
         current_download["handle"] = None
         current_download["video_file"] = None
+        current_download["info_hash"] = None
 
     return jsonify({"status": "cancelled"})
 
