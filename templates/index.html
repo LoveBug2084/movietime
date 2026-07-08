@@ -838,8 +838,13 @@
             currentSearchQuery = '';
             
             if (!popularLoaded) {
-                const resp = await fetch('/api/movies/all?full=1');
-                const data = await resp.json();
+                const [moviesResp, libResp] = await Promise.all([
+                    fetch('/api/movies/all?full=1'),
+                    fetch('/api/downloads/list')
+                ]);
+                const data = await moviesResp.json();
+                const libData = await libResp.json();
+                libraryMovies = libData || [];
                 if (data.incremental) {
                     displayMovies = data.movies || [];
                 } else {
@@ -1295,44 +1300,32 @@
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
-                // Reset all download bars
-                document.querySelectorAll('.movie-card').forEach(card => {
-                    const fill = card.querySelector('.dl-progress-fill');
-                    const text = card.querySelector('.dl-percent-text');
-                    if (fill) fill.style.width = '0%';
-                    if (text) text.textContent = '';
-                });
-
                 if (data.status === 'downloading' && data.info_hash) {
-                    const activeCardEl = document.querySelector(`.movie-card[data-info-hash="${data.info_hash}"]`);
-                    if (!activeCardEl) {
-                        // Try with dataset
-                        const cards = document.querySelectorAll('.movie-card');
-                        for (const c of cards) {
-                            if (c.dataset.infoHash === data.info_hash) {
-                                // Found it - apply two-stage progress logic
-                                const downloaded = data.downloaded_size || 0;
-                                let displayPercent;
-                                if (downloaded < HEADER_MIN_SIZE) {
-                                    displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
-                                } else {
-                                    const fileSize = parseInt(data.total_size);
-                                    if (!fileSize) break;
-                                    displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
-                                }
-                                const fill = c.querySelector('.dl-progress-fill');
-                                const text = c.querySelector('.dl-percent-text');
-                                if (fill) {
-                                    if (downloaded < HEADER_MIN_SIZE) {
-                                        fill.classList.add('header-stage');
-                                    } else {
-                                        fill.classList.remove('header-stage');
-                                    }
-                                    fill.style.width = displayPercent + '%';
-                                }
-                                if (text) text.textContent = displayPercent + '%';
-                                break;
+                    // Update only the actively downloading card, don't reset others
+                    const cards = document.querySelectorAll('.movie-card');
+                    for (const c of cards) {
+                        if (c.dataset.infoHash === data.info_hash) {
+                            const downloaded = data.downloaded_size || 0;
+                            let displayPercent;
+                            if (downloaded < HEADER_MIN_SIZE) {
+                                displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
+                            } else {
+                                const fileSize = parseInt(data.total_size);
+                                if (!fileSize) break;
+                                displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                             }
+                            const fill = c.querySelector('.dl-progress-fill');
+                            const text = c.querySelector('.dl-percent-text');
+                            if (fill) {
+                                if (downloaded < HEADER_MIN_SIZE) {
+                                    fill.classList.add('header-stage');
+                                } else {
+                                    fill.classList.remove('header-stage');
+                                }
+                                fill.style.width = displayPercent + '%';
+                            }
+                            if (text) text.textContent = displayPercent + '%';
+                            break;
                         }
                     }
                 }
@@ -1881,9 +1874,6 @@ async function playMovie(movie, source, card) {
         });
 
         
-        // Load all movies on start
-        loadAll();
-        
         async function openDownloadsFolder() {
             try {
                 const resp = await fetch('/api/open-downloads', { method: 'POST' });
@@ -1895,9 +1885,8 @@ async function playMovie(movie, source, card) {
                 console.error('Open downloads error:', e);
             }
         }
-        // Initialize
+        // Initialize - loads movies and library data before rendering
         loadAll();
-        loadDownloadedMovies();
     </script>
 </body>
 </html>
