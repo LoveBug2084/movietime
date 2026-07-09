@@ -1904,9 +1904,6 @@ def api_torrent():
     for future in as_completed(futures):
         all_torrents.extend(future.result())
         
-    if not all_torrents:
-        return jsonify([])
-        
     # Deduplicate by info_hash and keep highest seeders
     unique_torrents = {}
     for t in all_torrents:
@@ -1938,6 +1935,44 @@ def api_torrent():
             t["is_playable"] = False
             t["last_updated"] = 0
             t["dl_status"] = ""
+
+    # Inject local downloads not in external results
+    existing_hashes = {t["info_hash"] for t in final_torrents if t.get("info_hash")}
+    try:
+        tmdb_id_int = int(tmdb_id_param) if tmdb_id_param else None
+    except (ValueError, TypeError):
+        tmdb_id_int = None
+    if tmdb_id_int is not None:
+        tmdb_str = str(tmdb_id_int)
+        tmdb_dir = os.path.join(DOWNLOAD_DIR, tmdb_str)
+        if os.path.isdir(tmdb_dir):
+            for info_hash in os.listdir(tmdb_dir):
+                if info_hash in existing_hashes:
+                    continue
+                hash_dir = os.path.join(tmdb_dir, info_hash)
+                if not os.path.isdir(hash_dir):
+                    continue
+                status_path = os.path.join(hash_dir, STATUS_FILE_NAME)
+                if not os.path.isfile(status_path):
+                    continue
+                try:
+                    with open(status_path) as f:
+                        status = json.load(f)
+                except:
+                    continue
+                name = status.get("name", "")
+                final_torrents.append({
+                    "info_hash": info_hash,
+                    "name": name,
+                    "source": "local",
+                    "resolution": extract_resolution(name),
+                    "seeders": 0,
+                    "size": str(status.get("total_bytes") or status.get("downloaded_bytes") or 0),
+                    "progress": status.get("progress", 0),
+                    "is_playable": status.get("is_playable", False),
+                    "last_updated": status.get("last_updated", 0),
+                    "dl_status": status.get("status", ""),
+                })
 
     # Sort by progress descending (most downloaded first)
     final_torrents.sort(key=lambda t: t.get("progress") or 0, reverse=True)

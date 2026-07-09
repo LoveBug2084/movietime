@@ -96,6 +96,25 @@
             color: #fff;
             white-space: nowrap;
         }
+        .loading-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 10px 25px;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+            display: none;
+            pointer-events: none;
+        }
+        .loading-overlay.visible {
+            display: inline-flex;
+        }
         .refresh-btn {
             background: #0099ff;
             border: none;
@@ -281,10 +300,10 @@
             -webkit-user-select: none;
         }
         .movie-card .resolution-item:hover {
-            background: #006699;
+            background: #444;
         }
         .movie-card .resolution-item:active {
-            background: #004d73;
+            background: #333;
         }
         .movie-card .resolution-item .res-label {
             grid-column: 1;
@@ -324,12 +343,11 @@
          .movie-card .resolution-item .res-progress-track .res-progress-fill.phase1 {
              background: #ff8c00;
          }
-         .movie-card .resolution-item:hover {
-
-            background: #006699;
+          .movie-card .resolution-item:hover {
+            background: #444;
         }
         .movie-card .resolution-item .res-label {
-            color: #2ecc71;
+            color: #ffff00;
             font-weight: bold;
         }
         .movie-card .resolution-item .res-seeders {
@@ -663,6 +681,8 @@
         <div class="grid" id="grid"></div>
     </div>
     
+    <div class="loading-overlay" id="loading-overlay">Loading...</div>
+    
     <script>
         let currentMovies = [];
         let displayMovies = [];
@@ -688,8 +708,18 @@
         let totalDatabaseMovies = 0;
         let lastTotalMovies = 0;
         
+        function showLoading() {
+            document.getElementById('loading-overlay').classList.add('visible');
+        }
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.remove('visible');
+        }
+
         async function refreshDatabase() {
+            showLoading();
             document.getElementById('movie-count').textContent = 'Loading...';
+            const libResp = await fetch('/api/downloads/list');
+            libraryMovies = await libResp.json();
             popularLoaded = false;
             await loadAll(1);
             
@@ -697,6 +727,7 @@
             if (query) {
                 performSearch(query);
             }
+            hideLoading();
         }
 
         const grid = document.getElementById('grid');
@@ -819,7 +850,9 @@
         }
         
         async function loadAll(page = 1) {
+            showLoading();
             if (viewMode === 'downloaded') {
+                hideLoading();
                 applyCurrentView();
                 return;
             }
@@ -887,6 +920,7 @@
             currentMovies = pageMovies;
             renderMovies(pageMovies, 'popular');
             updatePagination(currentTotalPages);
+            hideLoading();
         }
         
         
@@ -1150,6 +1184,21 @@
             listEl.innerHTML = '';
             let anyPlayable = false;
             let bestPlayableHash = null;
+            const activeHash = activeCard ? activeCard.dataset.infoHash : null;
+            torrents.sort((a, b) => {
+                const aActive = a.info_hash && activeHash && a.info_hash === activeHash ? 1 : 0;
+                const bActive = b.info_hash && activeHash && b.info_hash === activeHash ? 1 : 0;
+                if (aActive !== bActive) return bActive - aActive;
+                const aPlayable = a.is_playable ? 1 : 0;
+                const bPlayable = b.is_playable ? 1 : 0;
+                if (aPlayable !== bPlayable) return bPlayable - aPlayable;
+                const aProg = parseInt(a.progress || 0, 10);
+                const bProg = parseInt(b.progress || 0, 10);
+                if (aProg !== bProg) return bProg - aProg;
+                const aSeed = parseInt(a.seeders || 0, 10);
+                const bSeed = parseInt(b.seeders || 0, 10);
+                return bSeed - aSeed;
+            });
             torrents.forEach(torrent => {
                 const item = document.createElement('div');
                 item.className = 'resolution-item';
