@@ -115,6 +115,61 @@
         .loading-overlay.visible {
             display: inline-flex;
         }
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.visible {
+            display: flex;
+        }
+        .modal-box {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 25px;
+            min-width: 300px;
+            text-align: center;
+            color: #fff;
+            font-size: 16px;
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 8px; right: 10px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 20px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .modal-close:hover { color: #fff; }
+        .modal-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 8px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+        }
+        .modal-buttons button:hover { background: #f40612; }
+        .modal-buttons button:last-child {
+            background: #333;
+        }
+        .modal-buttons button:last-child:hover { background: #444; }
         .refresh-btn {
             background: #0099ff;
             border: none;
@@ -683,6 +738,17 @@
     
     <div class="loading-overlay" id="loading-overlay">Loading...</div>
     
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-box">
+            <button class="modal-close" id="modal-close">✕</button>
+            <div id="modal-message"></div>
+            <div class="modal-buttons">
+                <button id="modal-yes">Yes</button>
+                <button id="modal-no">No</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         let currentMovies = [];
         let displayMovies = [];
@@ -713,6 +779,54 @@
         }
         function hideLoading() {
             document.getElementById('loading-overlay').classList.remove('visible');
+        }
+
+        function showDeleteConfirm(card, movie) {
+            const overlay = document.getElementById('modal-overlay');
+            const msg = document.getElementById('modal-message');
+            const yesBtn = document.getElementById('modal-yes');
+            const noBtn = document.getElementById('modal-no');
+            const closeBtn = document.getElementById('modal-close');
+            let path = '';
+
+            function hide() {
+                overlay.classList.remove('visible');
+            }
+
+            fetch('/api/download/path/' + movie.id)
+                .then(r => r.json())
+                .then(data => { path = data.path; msg.innerHTML = 'Delete <code>' + path + '</code>?'; })
+                .catch(() => { msg.textContent = 'Delete this movie?'; });
+            overlay.classList.add('visible');
+            yesBtn.onclick = () => {
+                msg.innerHTML = 'Are you sure? Delete <code>' + path + '</code>';
+                yesBtn.onclick = async () => {
+                    hide();
+                    try {
+                        const resp = await fetch('/api/download/delete/' + movie.id, { method: 'DELETE' });
+                        if (resp.ok) {
+                            libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
+                            card.remove();
+                            const mcEl = document.getElementById('movie-count');
+                            const mcText = mcEl.textContent;
+                            const match = mcText.match(/^([\d,]+)/);
+                            if (match) {
+                                const curr = parseInt(match[1].replace(/,/g, ''));
+                                mcEl.textContent = (curr - 1).toLocaleString() + mcText.slice(match[1].length);
+                            }
+                            showNotification('Movie deleted');
+                        } else {
+                            showNotification('Failed to delete movie', true);
+                        }
+                    } catch (e) {
+                        showNotification('Error deleting movie', true);
+                    }
+                };
+                noBtn.onclick = hide;
+                closeBtn.onclick = hide;
+            };
+            noBtn.onclick = hide;
+            closeBtn.onclick = hide;
         }
 
         async function refreshDatabase() {
@@ -1091,6 +1205,13 @@
                         dl_status: r.dl_status || '',
                         category: 'movies'
                     })));
+                }
+
+                if (source === 'downloaded' && movie.resolutions && movie.resolutions.length > 0) {
+                    card.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        showDeleteConfirm(card, movie);
+                    };
                 }
 
                 if (movie.seeders) {

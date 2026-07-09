@@ -23,6 +23,7 @@ import sys
 import threading
 import json
 import requests
+import shutil
 from flask import Flask, render_template, jsonify, request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2161,6 +2162,44 @@ def api_download_playable():
 
         return jsonify({"playable": True, "downloaded": downloaded, "file_size": file_size})
 
+@app.route("/api/download/path/<int:tmdb_id>")
+def api_download_path(tmdb_id):
+    """Return the filesystem path for a download"""
+    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
+    return jsonify({"path": tmdb_path})
+
+@app.route("/api/download/delete/<int:tmdb_id>", methods=["DELETE"])
+def api_download_delete(tmdb_id):
+    """Delete a download directory by tmdb_id — cancels active download first if matching"""
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+            mpv_player["process"] = None
+            mpv_player["playing"] = False
+
+    with download_lock:
+        active_tmdb = current_download.get("tmdb_id")
+        if active_tmdb is not None and active_tmdb == tmdb_id:
+            handle = current_download.get("handle")
+            if handle and handle.is_valid():
+                try:
+                    lt_session.remove_torrent(handle, True)
+                except:
+                    pass
+            current_download["handle"] = None
+            current_download["video_file"] = None
+            current_download["info_hash"] = None
+
+    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
+    if not os.path.isdir(tmdb_path):
+        return jsonify({"error": "Not found"}), 404
+    shutil.rmtree(tmdb_path)
+    return jsonify({"success": True})
+
 def is_download_active():
     """Check if libtorrent download is still in progress"""
     with download_lock:
@@ -2248,7 +2287,7 @@ def api_play():
 
             mpv_args = ["mpv", "--fs", "--keep-open=yes", "--quiet", "--no-terminal",
                         "--vo=gpu", "--hwdec=no", "--force-window=yes",
-                        "--demuxer-readahead-secs=30"]
+                        "--demuxer-readahead-secs=30", "--sid=no"]
 
             for sub_file in subtitle_files:
                 mpv_args.append(f"--sub-file={sub_file}")
