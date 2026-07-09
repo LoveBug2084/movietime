@@ -1563,12 +1563,17 @@
                 }
                 
                 console.log('Download started successfully');
+                const libResp = await fetch('/api/downloads/list');
+                libraryMovies = await libResp.json();
                 downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
                 // Move this torrent to the top of the resolution list
                 const resItem = card.querySelector(`.resolution-item[data-info-hash="${torrent.info_hash}"]`);
                 if (resItem) {
                     const listEl = card.querySelector('.resolution-list');
-                    if (listEl) listEl.prepend(resItem);
+                    if (listEl) {
+                        listEl.prepend(resItem);
+                        listEl.scrollTop = 0;
+                    }
                 }
             } catch (e) {
                 console.error('Fetch error:', e);
