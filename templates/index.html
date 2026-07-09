@@ -316,13 +316,13 @@
          }
          .movie-card .resolution-item .res-progress-track .res-progress-fill {
              height: 100%;
-             background: #0099ff;
              border-radius: 2px;
              width: 0%;
              transition: width 0.3s ease;
-         }
-         .movie-card .resolution-item .res-progress-track .res-progress-fill.completed {
              background: #2ecc71;
+         }
+         .movie-card .resolution-item .res-progress-track .res-progress-fill.phase1 {
+             background: #ff8c00;
          }
          .movie-card .resolution-item:hover {
 
@@ -362,6 +362,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            width: 100%;
         }
         .movie-card .download-bar .dl-buttons .dl-cancel {
             background: #444;
@@ -1316,6 +1317,8 @@
                                 const text = item.querySelector('.res-progress');
                                 if (fill) {
                                     fill.style.width = displayPercent + '%';
+                                    fill.classList.toggle('phase1', downloaded < HEADER_MIN_SIZE);
+                                    fill.classList.toggle('phase2', downloaded >= HEADER_MIN_SIZE && displayPercent < 100);
                                     fill.classList.toggle('completed', displayPercent >= 100);
                                 }
                                 if (text) text.textContent = displayPercent + '%';
@@ -1542,6 +1545,7 @@ async function playMovie(movie, source, card) {
                     const fill = item.querySelector('.res-progress-fill');
                     if (fill) {
                         fill.style.width = '100%';
+                        fill.classList.remove('phase1');
                         fill.classList.add('completed');
                     }
                     item.title = 'Ready to play';
@@ -1582,6 +1586,7 @@ async function playMovie(movie, source, card) {
                     const fill = item.querySelector('.res-progress-fill');
                     if (fill) {
                         fill.style.width = displayPercent + '%';
+                        fill.classList.toggle('phase1', downloaded < HEADER_MIN_SIZE);
                         fill.classList.toggle('completed', displayPercent >= 100);
                     }
                 });
