@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # PyQt5 imports for desktop app
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl, QEvent
+from PyQt5.QtCore import Qt, QUrl, QEvent
 from PyQt5.QtGui import QIcon
 from PyQt5.QtNetwork import QLocalServer
 
@@ -2403,6 +2403,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         
         self.web_view = QWebEngineView()
+        self.web_view.setContextMenuPolicy(Qt.PreventContextMenu)
         self.web_view.setUrl(QUrl("http://127.0.0.1:65000"))
         
         layout.addWidget(self.web_view)
