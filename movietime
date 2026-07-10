@@ -2183,6 +2183,44 @@ def api_download_delete(tmdb_id):
     shutil.rmtree(tmdb_path)
     return jsonify({"success": True})
 
+@app.route("/api/download/delete/<int:tmdb_id>/<info_hash>", methods=["DELETE"])
+def api_download_delete_hash(tmdb_id, info_hash):
+    """Delete a single torrent by info_hash within a tmdb_id directory"""
+    with mpv_lock:
+        if mpv_player["process"]:
+            try:
+                mpv_player["process"].terminate()
+                mpv_player["process"].wait(timeout=5)
+            except:
+                mpv_player["process"].kill()
+            mpv_player["process"] = None
+            mpv_player["playing"] = False
+
+    with download_lock:
+        active_tmdb = current_download.get("tmdb_id")
+        active_hash = current_download.get("info_hash")
+        if active_tmdb is not None and active_tmdb == tmdb_id and active_hash == info_hash:
+            handle = current_download.get("handle")
+            if handle and handle.is_valid():
+                try:
+                    lt_session.remove_torrent(handle, True)
+                except:
+                    pass
+            current_download["handle"] = None
+            current_download["video_file"] = None
+            current_download["info_hash"] = None
+
+    hash_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
+    if not os.path.isdir(hash_path):
+        return jsonify({"error": "Not found"}), 404
+    shutil.rmtree(hash_path)
+
+    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
+    if os.path.isdir(tmdb_path) and not os.listdir(tmdb_path):
+        shutil.rmtree(tmdb_path)
+
+    return jsonify({"success": True})
+
 def is_download_active():
     """Check if libtorrent download is still in progress"""
     with download_lock:

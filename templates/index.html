@@ -96,6 +96,16 @@
             color: #fff;
             white-space: nowrap;
         }
+        .loading-bg {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            display: none;
+        }
+        .loading-bg.visible {
+            display: block;
+        }
         .loading-overlay {
             position: fixed;
             top: 50%;
@@ -523,9 +533,9 @@
         }
         .notification {
             position: fixed;
-            top: 80px;
+            top: 50%;
             left: 50%;
-            transform: translateX(-50%);
+            transform: translate(-50%, -50%);
             background: #e50914;
             color: #fff;
             padding: 12px 24px;
@@ -736,6 +746,7 @@
         <div class="grid" id="grid"></div>
     </div>
     
+    <div class="loading-bg" id="loading-bg"></div>
     <div class="loading-overlay" id="loading-overlay">Loading...</div>
     
     <div class="modal-overlay" id="modal-overlay">
@@ -775,10 +786,12 @@
         let lastTotalMovies = 0;
         
         function showLoading() {
+            document.getElementById('loading-bg').classList.add('visible');
             document.getElementById('loading-overlay').classList.add('visible');
         }
         function hideLoading() {
             document.getElementById('loading-overlay').classList.remove('visible');
+            document.getElementById('loading-bg').classList.remove('visible');
         }
 
         function showDeleteConfirm(card, movie) {
@@ -807,6 +820,7 @@
                         const resp = await fetch('/api/download/delete/' + movie.id, { method: 'DELETE' });
                         if (resp.ok) {
                             libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
+                            displayMovies.forEach(m => { if (m.id === movie.id) delete m.resolutions; });
                             card.remove();
                             const mcEl = document.getElementById('movie-count');
                             const mcText = mcEl.textContent;
@@ -821,6 +835,66 @@
                         }
                     } catch (e) {
                         showNotification('Error deleting movie', true);
+                    }
+                };
+                noBtn.onclick = hide;
+                closeBtn.onclick = hide;
+            };
+            noBtn.onclick = hide;
+            closeBtn.onclick = hide;
+        }
+
+        function showDeleteTorrentConfirm(card, item, movie) {
+            const overlay = document.getElementById('modal-overlay');
+            const msg = document.getElementById('modal-message');
+            const yesBtn = document.getElementById('modal-yes');
+            const noBtn = document.getElementById('modal-no');
+            const closeBtn = document.getElementById('modal-close');
+            const infoHash = item.dataset.infoHash;
+            const name = item.dataset.torrentName || 'Unknown';
+            let path = '';
+
+            function hide() {
+                overlay.classList.remove('visible');
+            }
+
+            fetch('/api/download/path/' + movie.id)
+                .then(r => r.json())
+                .then(data => { path = data.path + '/' + infoHash; msg.innerHTML = 'Delete <strong>' + name + '</strong>?<br><code>' + path + '</code>'; })
+                .catch(() => { msg.innerHTML = 'Delete <strong>' + name + '</strong>?'; });
+            overlay.classList.add('visible');
+            yesBtn.onclick = () => {
+                msg.innerHTML = 'Are you sure?<br><strong>' + name + '</strong><br><code>' + path + '</code>';
+                yesBtn.onclick = async () => {
+                    hide();
+                    try {
+                        const resp = await fetch('/api/download/delete/' + movie.id + '/' + infoHash, { method: 'DELETE' });
+                        if (resp.ok) {
+                            const progressFill = item.querySelector('.res-progress-fill');
+                            const progressEl = item.querySelector('.res-progress');
+                            if (progressFill) progressFill.style.width = '0%';
+                            if (progressEl) progressEl.textContent = '';
+                            const movieEntry = libraryMovies.find(m => m.id === movie.id);
+                            if (movieEntry) {
+                                const res = movieEntry.resolutions.find(r => r.info_hash === infoHash);
+                                if (res) { res.progress = 0; res.is_playable = false; res.dl_status = ''; }
+                            }
+                            displayMovies.forEach(dm => {
+                                if (dm.id === movie.id && dm.resolutions) {
+                                    dm.resolutions = dm.resolutions.filter(r => r.info_hash !== infoHash);
+                                }
+                            });
+                            if (card.classList.contains('downloading')) {
+                                card.classList.remove('downloading', 'playable');
+                                const btn = card.querySelector('.dl-play');
+                                if (btn) btn.classList.remove('ready');
+                            }
+                            showNotification('Torrent deleted');
+                        } else {
+                            showNotification('Failed to delete torrent', true);
+                        }
+                    } catch (e) {
+                        showNotification('Error deleting torrent', true);
                     }
                 };
                 noBtn.onclick = hide;
@@ -1211,6 +1285,7 @@
                 if (movie.id) {
                     card.dataset.movieId = movie.id;
                 }
+                card.dataset.source = source;
                 
                 if (movie.resolutions && movie.resolutions.length > 0) {
                     updateCardWithTorrent(card, movie.resolutions.map(r => ({
@@ -1336,6 +1411,9 @@
                 const aProg = parseInt(a.progress || 0, 10);
                 const bProg = parseInt(b.progress || 0, 10);
                 if (aProg !== bProg) return bProg - aProg;
+                const aRes = resolutionRank(a.resolution);
+                const bRes = resolutionRank(b.resolution);
+                if (aRes !== bRes) return bRes - aRes;
                 const aSeed = parseInt(a.seeders || 0, 10);
                 const bSeed = parseInt(b.seeders || 0, 10);
                 return bSeed - aSeed;
@@ -1394,11 +1472,22 @@
                 item.onclick = (e) => {
                     e.stopPropagation();
                     if (torrent.is_playable) {
+                        card.dataset.infoHash = torrent.info_hash;
                         startPlayback(torrent.info_hash);
                     } else {
                         startDownloadFromTorrent(card, torrent);
                     }
                 };
+
+                item.dataset.torrentName = torrent.name || '';
+                if (card.dataset.source === 'downloaded') {
+                    item.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
+                        if (movie) showDeleteTorrentConfirm(card, item, movie);
+                    };
+                }
                 
                 listEl.appendChild(item);
             });
@@ -1800,16 +1889,39 @@ async function playMovie(movie, source, card) {
             }
         }
 
+        function resolutionRank(res) {
+            const rank = { '4K': 5, '2160p': 5, '1080p': 4, '720p': 3, '480p': 2, '360p': 1 };
+            return rank[res] || 0;
+        }
+
         async function startPlaybackFromCard(event) {
             const card = event.target.closest('.movie-card');
             if (!card) return;
             const hash = card.dataset.infoHash;
             if (hash) {
                 card.classList.add('playable');
-                card.querySelector('.dl-play').classList.add('ready');
+                const btn = card.querySelector('.dl-play');
+                if (btn) btn.classList.add('ready');
                 startPlayback(hash);
-            } else if (card._playMovie) {
-                card._playMovie();
+                return;
+            }
+            const movieId = parseInt(card.dataset.movieId);
+            const entry = libraryMovies.find(m => m.id === movieId);
+            if (entry && entry.resolutions && entry.resolutions.length > 0) {
+                const complete = entry.resolutions.filter(r => r.is_playable && parseInt(r.progress) >= 100);
+                let best;
+                if (complete.length > 0) {
+                    best = complete.sort((a, b) => resolutionRank(b.resolution) - resolutionRank(a.resolution))[0];
+                } else {
+                    best = entry.resolutions.sort((a, b) => {
+                        const diff = (parseInt(b.progress) || 0) - (parseInt(a.progress) || 0);
+                        if (diff !== 0) return diff;
+                        const rDiff = resolutionRank(b.resolution) - resolutionRank(a.resolution);
+                        if (rDiff !== 0) return rDiff;
+                        return parseInt(b.seeders || 0) - parseInt(a.seeders || 0);
+                    })[0];
+                }
+                if (best && best.info_hash) startPlayback(best.info_hash);
             }
         }
         
