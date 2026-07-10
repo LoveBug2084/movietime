@@ -118,7 +118,7 @@
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.75);
+            background: rgba(0,0,0,0.5);
             z-index: 999;
             display: none;
             align-items: center;
@@ -793,13 +793,14 @@
                 overlay.classList.remove('visible');
             }
 
+            const title = movie.title || movie.name || 'Unknown';
             fetch('/api/download/path/' + movie.id)
                 .then(r => r.json())
-                .then(data => { path = data.path; msg.innerHTML = 'Delete <code>' + path + '</code>?'; })
-                .catch(() => { msg.textContent = 'Delete this movie?'; });
+                .then(data => { path = data.path; msg.innerHTML = 'Delete <strong>' + title + '</strong>?<br><code>' + path + '</code>'; })
+                .catch(() => { msg.innerHTML = 'Delete <strong>' + title + '</strong>?'; });
             overlay.classList.add('visible');
             yesBtn.onclick = () => {
-                msg.innerHTML = 'Are you sure? Delete <code>' + path + '</code>';
+                msg.innerHTML = 'Are you sure?<br><strong>' + title + '</strong><br><code>' + path + '</code>';
                 yesBtn.onclick = async () => {
                     hide();
                     try {
@@ -832,15 +833,21 @@
         async function refreshDatabase() {
             showLoading();
             document.getElementById('movie-count').textContent = 'Loading...';
-            const libResp = await fetch('/api/downloads/list');
-            libraryMovies = await libResp.json();
-            popularLoaded = false;
-            await loadAll(1);
-            
-            const query = searchInput.value.trim();
-            if (query) {
-                performSearch(query);
-            }
+
+            const [moviesResp, libResp] = await Promise.all([
+                fetch('/api/movies/all?full=1'),
+                fetch('/api/downloads/list')
+            ]);
+            const data = await moviesResp.json();
+            const libData = await libResp.json();
+
+            libraryMovies = libData || [];
+            displayMovies = data.movies || [];
+            popularLoaded = true;
+            totalDatabaseMovies = displayMovies.length;
+            enrichLibraryMovies();
+
+            applyCurrentView();
             hideLoading();
         }
 
@@ -901,11 +908,23 @@
             }
         }
 
+        function enrichLibraryMovies() {
+            if (!displayMovies || displayMovies.length === 0) return;
+            libraryMovies = libraryMovies.map(lm => {
+                const cached = displayMovies.find(m => m.id === lm.id);
+                if (cached) {
+                    return { ...cached, resolutions: lm.resolutions };
+                }
+                return lm;
+            });
+        }
+
         async function loadDownloadedMovies() {
             try {
                 const resp = await fetch('/api/downloads/list');
                 const movies = await resp.json();
                 libraryMovies = movies || [];
+                enrichLibraryMovies();
                 applyCurrentView();
             } catch (e) {
                 console.error('Error loading library:', e);
@@ -990,6 +1009,7 @@
                 }
                 popularLoaded = true;
                 totalDatabaseMovies = displayMovies.length;
+                enrichLibraryMovies();
             }
             
             // Apply genre filter if selected

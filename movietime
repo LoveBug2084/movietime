@@ -1820,9 +1820,6 @@ def api_downloads_list():
     if not os.path.exists(DOWNLOAD_DIR):
         return jsonify([])
 
-    cache_data = load_cached_movies()
-    movie_id_map = {m["id"]: m for m in cache_data.get("movies", []) if "id" in m} if cache_data else {}
-
     movies = {}
     for tmdb_str in os.listdir(DOWNLOAD_DIR):
         tmdb_dir = os.path.join(DOWNLOAD_DIR, tmdb_str)
@@ -1865,21 +1862,7 @@ def api_downloads_list():
             }
 
             if tmdb_id_int not in movies:
-                cache_movie = movie_id_map.get(tmdb_id_int) if tmdb_id_int else None
-                if cache_movie:
-                    base = cache_movie.copy()
-                else:
-                    base = {
-                        "id": tmdb_id_int,
-                        "title": status.get("name", "Unknown"),
-                        "poster": None,
-                        "overview": "",
-                        "year": "",
-                        "rating": None,
-                        "genre_ids": [],
-                    }
-                base["resolutions"] = []
-                movies[tmdb_id_int] = base
+                movies[tmdb_id_int] = {"id": tmdb_id_int, "resolutions": []}
 
             movies[tmdb_id_int]["resolutions"].append(entry)
 
