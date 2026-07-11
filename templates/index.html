@@ -332,6 +332,7 @@
             margin-top: 5px;
             max-height: 110px;
             overflow-y: auto;
+            overflow-x: hidden;
             scrollbar-width: thin;
             scrollbar-color: #0099ff transparent;
             pointer-events: auto;
@@ -353,6 +354,7 @@
         }
         .movie-card .resolution-item {
             display: grid;
+            min-width: 0;
             grid-template-columns: auto 1fr;
             grid-template-rows: auto auto auto;
             gap: 0 8px;
@@ -970,11 +972,7 @@
                 btn.textContent = '📚 Library';
                 btn.style.background = '#0099ff';
                 
-                if (libraryMovies.length === 0) {
-                    await loadDownloadedMovies();
-                } else {
-                    applyCurrentView();
-                }
+                await loadDownloadedMovies();
             } else {
                 viewMode = 'all';
                 btn.textContent = '📚 All';
