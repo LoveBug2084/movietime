@@ -1861,10 +1861,18 @@ def api_downloads_list():
                 "dl_status": status.get("status", ""),
             }
 
-            if tmdb_id_int not in movies:
-                movies[tmdb_id_int] = {"id": tmdb_id_int, "resolutions": []}
+            if tmdb_id_int is not None:
+                key = tmdb_id_int
+            else:
+                key = info_hash
+            if key not in movies:
+                movie_entry = {"id": tmdb_id_int, "resolutions": []}
+                if tmdb_id_int is None:
+                    movie_entry["id"] = info_hash
+                    movie_entry["title"] = status.get("name", "Unknown")
+                movies[key] = movie_entry
 
-            movies[tmdb_id_int]["resolutions"].append(entry)
+            movies[key]["resolutions"].append(entry)
 
     result = list(movies.values())
     return jsonify(result)

@@ -11,7 +11,7 @@
             scrollbar-color: #0099ff transparent;
         }
         html::-webkit-scrollbar, body::-webkit-scrollbar {
-            width: 8px;
+            width: 12px;
         }
         html::-webkit-scrollbar-track, body::-webkit-scrollbar-track {
             background: transparent;
@@ -250,7 +250,7 @@
             border-color: #666;
         }
         .sort-bar select::-webkit-scrollbar {
-            width: 8px;
+            width: 12px;
         }
         .sort-bar select::-webkit-scrollbar-track {
             background: transparent;
@@ -339,7 +339,7 @@
             z-index: 30;
         }
         .movie-card .resolution-list::-webkit-scrollbar {
-            width: 8px;
+            width: 12px;
         }
         .movie-card .resolution-list::-webkit-scrollbar-track {
             background: transparent;
@@ -505,7 +505,7 @@
             scrollbar-color: #0099ff transparent;
         }
         .movie-card .description::-webkit-scrollbar {
-            width: 8px;
+            width: 12px;
         }
         .movie-card .description::-webkit-scrollbar-track {
             background: transparent;
@@ -884,6 +884,7 @@
                                     dm.resolutions = dm.resolutions.filter(r => r.info_hash !== infoHash);
                                 }
                             });
+                            item.remove();
                             if (card.classList.contains('downloading')) {
                                 card.classList.remove('downloading', 'playable');
                                 const btn = card.querySelector('.dl-play');
@@ -1364,6 +1365,14 @@
                     isStreaming = wasStreaming;
                     activeCard = card;
                     card.classList.add('downloading');
+                    const resItem = card.querySelector(`.resolution-item[data-info-hash="${prevInfoHash}"]`);
+                    if (resItem) {
+                        const listEl = card.querySelector('.resolution-list');
+                        if (listEl) {
+                            listEl.prepend(resItem);
+                            listEl.scrollTop = 0;
+                        }
+                    }
                     downloadPollInterval = setInterval(() => checkDownload(card, prevInfoHash), 2000);
                 }
             }
@@ -1577,7 +1586,7 @@
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
-                if (data.status === 'downloading' && data.info_hash) {
+                if ((data.status === 'downloading' || data.status === 'ready') && data.info_hash) {
                     const cards = document.querySelectorAll('.movie-card');
                     for (const c of cards) {
                         if (c.dataset.infoHash === data.info_hash) {
@@ -1773,6 +1782,10 @@
                     }
                     item.title = 'Ready to play';
                 });
+
+                const libResp = await fetch('/api/downloads/list');
+                libraryMovies = await libResp.json();
+                enrichLibraryMovies();
 
                 if (downloadPollInterval) {
                     clearInterval(downloadPollInterval);
