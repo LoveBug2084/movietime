@@ -1985,6 +1985,18 @@ def api_start():
 
     threading.Thread(target=download_torrent, args=(magnet, info_hash, name, tmdb_id_int)).start()
 
+    save_torrent_status(tmdb_id_int, info_hash, {
+        "progress": 0,
+        "downloaded_bytes": 0,
+        "total_bytes": 0,
+        "status": "downloading",
+        "is_playable": False,
+        "last_updated": time.time(),
+        "magnet": magnet,
+        "name": name,
+        "tmdb_id": tmdb_id_int
+    })
+
     return jsonify({"status": "downloading", "name": name})
 
 @app.route("/api/cache/refresh", methods=["POST"])

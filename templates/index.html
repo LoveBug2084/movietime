@@ -1353,6 +1353,7 @@
             
             // Re-enable progress polling on the new card if a download was in progress
             if (wasPolling && prevInfoHash) {
+                if (downloadPollInterval) clearInterval(downloadPollInterval);
                 let card;
                 if (prevMovieId) {
                     card = document.querySelector(`.movie-card[data-movie-id="${prevMovieId}"]`);
@@ -1475,7 +1476,7 @@
                         card.dataset.infoHash = torrent.info_hash;
                         startPlayback(torrent.info_hash);
                     } else {
-                        startDownloadFromTorrent(card, torrent);
+                        startTorrent(torrent, card);
                     }
                 };
 
@@ -1609,74 +1610,74 @@
             } catch (e) {}
         }
         
-        async function startDownloadFromTorrent(card, torrent) {
-            console.log('startDownloadFromTorrent:', torrent.name, torrent.info_hash);
+        async function startTorrent(torrent, card) {
+            const { info_hash, magnet, name } = torrent;
 
-            // If this exact torrent is already downloading, just show progress
             try {
                 const statusResp = await fetch('/api/status');
                 const statusData = await statusResp.json();
-                
-                if (statusData.status === 'downloading' && statusData.info_hash === torrent.info_hash &&
-                    (!statusData.tmdb_id || !card.dataset.movieId || String(statusData.tmdb_id) === String(card.dataset.movieId))) {
-                    if (activeCard && activeCard !== card) {
-                        activeCard.classList.remove('downloading');
-                        activeCard.classList.remove('playable');
+
+                const tmdbMatch = !statusData.tmdb_id || !card.dataset.movieId || String(statusData.tmdb_id) === String(card.dataset.movieId);
+
+                if (statusData.info_hash === info_hash && tmdbMatch) {
+                    if (statusData.status === 'downloading') {
+                        if (activeCard && activeCard !== card) {
+                            activeCard.classList.remove('downloading', 'playable');
+                        }
+                        if (downloadPollInterval) clearInterval(downloadPollInterval);
+                        activeCard = card;
+                        card.classList.add('downloading');
+                        card.dataset.infoHash = info_hash;
+                        downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
+                        return;
                     }
-                    if (downloadPollInterval) {
-                        clearInterval(downloadPollInterval);
+                    if (statusData.status === 'ready' || (statusData.status === 'idle' && statusData.file)) {
+                        card.dataset.infoHash = info_hash;
+                        startPlayback(info_hash);
+                        return;
                     }
-                    activeCard = card;
-                    card.classList.add('downloading');
-                    downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
-                    return;
-                }
-                
-                // Different torrent or nothing - cancel old and start new
-                if (statusData.status === 'downloading' || statusData.status === 'ready') {
+                } else if (statusData.status === 'downloading' || statusData.status === 'ready') {
                     await cancelDownload();
                     await new Promise(r => setTimeout(r, 500));
                 }
             } catch (e) {
                 console.error('Status check error:', e);
             }
-            
+
             if (activeCard && activeCard !== card) {
-                activeCard.classList.remove('downloading');
-                activeCard.classList.remove('playable');
+                activeCard.classList.remove('downloading', 'playable');
             }
             if (downloadPollInterval) {
                 clearInterval(downloadPollInterval);
                 downloadPollInterval = null;
             }
             isStreaming = false;
-            
+
             activeCard = card;
             card.classList.add('downloading');
-            card.dataset.infoHash = torrent.info_hash;
-            
+            card.dataset.infoHash = info_hash;
+
             try {
                 const tmdbId = card.dataset.movieId || '';
                 const resp = await fetch('/api/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ magnet: torrent.magnet, info_hash: torrent.info_hash, name: torrent.name, tmdb_id: tmdbId })
+                    body: JSON.stringify({ magnet, info_hash, name, tmdb_id: tmdbId })
                 });
-                
+
                 if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
-                    console.error('Failed to start download:', errData);
                     card.classList.remove('downloading');
                     activeCard = null;
                     return;
                 }
-                
-                console.log('Download started successfully');
+
                 const libResp = await fetch('/api/downloads/list');
                 libraryMovies = await libResp.json();
-                downloadPollInterval = setInterval(() => checkDownload(card, torrent.info_hash), 2000);
-                // Move this torrent to the top of the resolution list
-                const resItem = card.querySelector(`.resolution-item[data-info-hash="${torrent.info_hash}"]`);
+                enrichLibraryMovies();
+
+                downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
+
+                const resItem = card.querySelector(`.resolution-item[data-info-hash="${info_hash}"]`);
                 if (resItem) {
                     const listEl = card.querySelector('.resolution-list');
                     if (listEl) {
@@ -1690,31 +1691,26 @@
                 activeCard = null;
             }
         }
-        
-async function playMovie(movie, source, card) {
-            // Determine what torrent we want for this movie
+
+        async function playMovie(movie, source, card) {
             let magnet, info_hash, name;
-            
-            // Check if this movie was already downloaded - check both card dataset and status
-            const cardInfoHash = card.dataset.infoHash || movie.info_hash || '';
+
             const statusResp = await fetch('/api/status');
             const statusData = await statusResp.json();
-            
-            // If we have a matching info_hash and status is ready (or no active download but we have a file path), play directly
+            const cardInfoHash = card.dataset.infoHash || movie.info_hash || '';
             const statusInfoHash = statusData.info_hash || '';
-            const statusTmdbId = statusData.tmdb_id;
             const cardMovieId = card.dataset.movieId;
-            const tmdbMatch = !statusTmdbId || !cardMovieId || String(statusTmdbId) === String(cardMovieId);
+            const tmdbMatch = !statusData.tmdb_id || !cardMovieId || String(statusData.tmdb_id) === String(cardMovieId);
+
             if (cardInfoHash && statusInfoHash === cardInfoHash && tmdbMatch && (statusData.status === 'ready' || (statusData.status === 'idle' && statusData.file))) {
                 startPlayback(cardInfoHash);
                 return;
             }
-            // No active download but card has an info_hash — try playing the existing file
             if (cardInfoHash && statusData.status === 'idle' && !statusData.info_hash) {
                 startPlayback(cardInfoHash);
                 return;
             }
-            
+
             if (movie.magnet && movie.info_hash) {
                 magnet = movie.magnet;
                 info_hash = movie.info_hash;
@@ -1728,75 +1724,18 @@ async function playMovie(movie, source, card) {
                 const year = movie.year || card.dataset.movieYear || '';
                 const tmdbId = movie.id || '';
                 const torrentResp = await fetch(`/api/torrent?q=${encodeURIComponent(query)}&category=${currentCategory}&year=${encodeURIComponent(year)}&tmdb_id=${encodeURIComponent(tmdbId)}`);
-                
-                if (!torrentResp.ok) {
-                    return;
-                }
-
+                if (!torrentResp.ok) return;
                 const torrents = await torrentResp.json();
-                if (torrents.length === 0) {
-                    return;
-                }
-                
+                if (torrents.length === 0) return;
                 const best = torrents[0];
                 magnet = best.magnet;
                 info_hash = best.info_hash;
                 name = best.name;
             }
-            
-            // Check if this exact torrent is already downloading/ready (reuse status from earlier if same info_hash)
-            if (statusData.info_hash && statusData.info_hash === info_hash &&
-                (!statusData.tmdb_id || !card.dataset.movieId || String(statusData.tmdb_id) === String(card.dataset.movieId))) {
-                // Same torrent - resume or play
-                if (activeCard && activeCard !== card) {
-                    activeCard.classList.remove('downloading');
-                    activeCard.classList.remove('playable');
-                }
-                if (downloadPollInterval) {
-                    clearInterval(downloadPollInterval);
-                }
-                activeCard = card;
-                card.classList.add('downloading');
-                card.dataset.infoHash = info_hash;
-                
-                if (statusData.status === 'ready' || (statusData.status === 'downloading' && statusData.is_valid)) {
-                    startPlayback(info_hash);
-                } else {
-                    downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
-                }
-                return;
-            }
-            
-            // Different torrent or nothing - cancel old and start new
-            if (statusData.status === 'downloading' || statusData.status === 'ready') {
-                await cancelDownload();
-                await new Promise(r => setTimeout(r, 500));
-            }
-            
-            if (activeCard && activeCard !== card) {
-                activeCard.classList.remove('downloading');
-                activeCard.classList.remove('playable');
-            }
-            if (downloadPollInterval) {
-                clearInterval(downloadPollInterval);
-                downloadPollInterval = null;
-            }
-            
-            activeCard = card;
-            card.classList.add('downloading');
-            card.dataset.infoHash = info_hash;
-            isStreaming = false;
-            
-            const tmdbId = card.dataset.movieId || movie.id || '';
-            await fetch('/api/start', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({magnet, info_hash, name, tmdb_id: tmdbId})
-            });
-            
-            downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
+
+            startTorrent({ info_hash, magnet, name }, card);
         }
-        
+
         let isStreaming = false;
         
         async function checkDownload(card, expectedInfoHash) {
