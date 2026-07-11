@@ -1421,12 +1421,12 @@
                 const aProg = parseInt(a.progress || 0, 10);
                 const bProg = parseInt(b.progress || 0, 10);
                 if (aProg !== bProg) return bProg - aProg;
-                const aRes = resolutionRank(a.resolution);
-                const bRes = resolutionRank(b.resolution);
-                if (aRes !== bRes) return bRes - aRes;
                 const aSeed = parseInt(a.seeders || 0, 10);
                 const bSeed = parseInt(b.seeders || 0, 10);
-                return bSeed - aSeed;
+                if (aSeed !== bSeed) return bSeed - aSeed;
+                const aRes = resolutionRank(a.resolution);
+                const bRes = resolutionRank(b.resolution);
+                return bRes - aRes;
             });
             torrents.forEach(torrent => {
                 const item = document.createElement('div');
