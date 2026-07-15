@@ -971,8 +971,8 @@
                 viewMode = 'downloaded';
                 btn.textContent = '📚 Library';
                 btn.style.background = '#0099ff';
-                
-                await loadDownloadedMovies();
+
+                    await loadDownloadedMovies();
             } else {
                 viewMode = 'all';
                 btn.textContent = '📚 All';
@@ -1066,24 +1066,24 @@
             cancelCurrentSearch();
             currentSource = 'popular';
             currentSearchQuery = '';
-            
+
             if (!popularLoaded) {
                 const [moviesResp, libResp] = await Promise.all([
                     fetch('/api/movies/all?full=1'),
                     fetch('/api/downloads/list')
                 ]);
-                const data = await moviesResp.json();
-                const libData = await libResp.json();
-                libraryMovies = libData || [];
+                const data = await moviesResp.json();            
+            const libData = await libResp.json();
+            libraryMovies = libData || [];
                 if (data.incremental) {
                     displayMovies = data.movies || [];
-                } else {
-                    displayMovies = data.movies || [];
-                }
+                } else {            
+                displayMovies = data.movies || [];
+			}
                 popularLoaded = true;
                 totalDatabaseMovies = displayMovies.length;
-                enrichLibraryMovies();
-            }
+				enrichLibraryMovies();
+			}
             
             // Apply genre filter if selected
 

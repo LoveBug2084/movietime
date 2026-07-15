@@ -1850,6 +1850,8 @@ def api_downloads_list():
             resolution = status.get("resolution", extract_resolution(status.get("name", "")))
             size = status.get("total_bytes", 0) or status.get("size", 0)
 
+            last_updated = status.get("last_updated", 0)
+
             entry = {
                 "info_hash": info_hash,
                 "progress": status.get("progress", 0),
@@ -1859,6 +1861,7 @@ def api_downloads_list():
                 "magnet": status.get("magnet", ""),
                 "name": status.get("name", ""),
                 "dl_status": status.get("status", ""),
+                "last_updated": last_updated,
             }
 
             if tmdb_id_int is not None:
@@ -1866,15 +1869,18 @@ def api_downloads_list():
             else:
                 key = info_hash
             if key not in movies:
-                movie_entry = {"id": tmdb_id_int, "resolutions": []}
+                movie_entry = {"id": tmdb_id_int, "resolutions": [], "last_updated": last_updated}
                 if tmdb_id_int is None:
                     movie_entry["id"] = info_hash
                     movie_entry["title"] = status.get("name", "Unknown")
                 movies[key] = movie_entry
 
             movies[key]["resolutions"].append(entry)
+            if last_updated > movies[key]["last_updated"]:
+                movies[key]["last_updated"] = last_updated
 
     result = list(movies.values())
+    result.sort(key=lambda m: m.get("last_updated", 0), reverse=True)
     return jsonify(result)
 
 @app.route("/api/torrent")
