@@ -786,6 +786,7 @@
         let popularLoaded = false;
         let totalDatabaseMovies = 0;
         let lastTotalMovies = 0;
+        let cardMap = new Map(); // movie_id → card DOM element
         
         function showLoading() {
             document.getElementById('loading-bg').classList.add('visible');
@@ -824,6 +825,7 @@
                             libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
                             displayMovies.forEach(m => { if (m.id === movie.id) delete m.resolutions; });
                             card.remove();
+                            cardMap.delete(movie.id);
                             const mcEl = document.getElementById('movie-count');
                             const mcText = mcEl.textContent;
                             const match = mcText.match(/^([\d,]+)/);
@@ -1203,7 +1205,11 @@
                 activeCard = null;
             }
             isStreaming = false;
-            grid.innerHTML = '';
+
+            // Remove cards from DOM without destroying cardMap references
+            while (grid.firstChild) {
+                grid.removeChild(grid.firstChild);
+            }
             
             // Handle empty results
             if (!movies || movies.length === 0) {
@@ -1216,137 +1222,220 @@
                 if (localEntry && localEntry.resolutions) {
                     movie.resolutions = localEntry.resolutions;
                 }
-                const card = document.createElement('div');
-                card.className = 'movie-card';
-                
-                let posterHtml;
-                if (movie.poster) {
-                    posterHtml = `<img src="${movie.poster}" alt="${movie.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="placeholder-thumb" style='display:none'></div>`;
-                } else if (movie.name) {
-                    // apibay result - no poster, show placeholder
-                    posterHtml = `<div class="placeholder-thumb"></div>`;
-                } else {
-                    posterHtml = `<div class="placeholder-thumb"></div>`;
-                }
-                
+
                 const title = movie.title || movie.name || 'Unknown';
                 const year = movie.year || '';
-                const rating = movie.rating ? Math.round(movie.rating / 2) : 0;
-                const ratingDisplay = movie.rating ? `<span class="rating-value">${movie.rating}/10</span>` : '';
-                const seeders = movie.seeders ? `Seeders: ${movie.seeders}` : '';
-                const resolution = movie.resolution || '';
-                const overview = movie.overview || '';
-                
-                let starsHtml = '';
-                for (let i = 1; i <= 5; i++) {
-                    if (i <= rating) {
-                        starsHtml += '<span class="star filled">★</span>';
-                    } else {
-                        starsHtml += '<span class="star">★</span>';
-                    }
-                }
-                
                 const infoHash = movie.info_hash || '';
                 const dlKey = infoHash || '';
-                
-                const resolutionHtml = resolution ? `<div class="resolution">${resolution}</div>` : '';
 
-                card.innerHTML = `
-                    <div class="poster-container">
-                        ${posterHtml}
-                        <div class="description">${overview}</div>
-                    </div>
-                    <div class="download-bar">
-                        <div class="dl-buttons">
-                            <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
-                            <button class="dl-play" onclick="event.stopPropagation(); startPlaybackFromCard(event)">Play</button>
-                        </div>
-                    </div>
-                    <div class="info">
-                        <div class="year-rating"><span class="year-value">${year}</span> ${ratingDisplay}</div>
-                        <div class="stars">${starsHtml}</div>
-                        <div class="title">${title}</div>
-                        <div class="seeders">${seeders}</div>
-                        ${resolutionHtml}
-                        <div class="resolution-list"></div>
-                        <div class="torrent-status"></div>
-                    </div>
-                `;
-                
-                if (dlKey) {
-                    card.dataset.infoHash = dlKey;
-                }
-                
-                if (year) {
-                    card.dataset.movieYear = year;
-                }
-                
-                if (movie.id) {
+                const existingCard = cardMap.get(movie.id);
+                let card;
+
+                if (existingCard) {
+                    // Reuse existing card
+                    card = existingCard;
+
+                    // Update dataset attributes
+                    card.dataset.source = source;
+                    card.dataset.infoHash = dlKey || '';
                     card.dataset.movieId = movie.id;
-                }
-                card.dataset.source = source;
-                
-                if (movie.resolutions && movie.resolutions.length > 0) {
-                    updateCardWithTorrent(card, movie.resolutions.map(r => ({
-                        resolution: r.resolution || 'Local',
-                        size: r.size || '0',
-                        seeders: 'Local',
-                        info_hash: r.info_hash || '',
-                        magnet: r.magnet || '',
-                        name: r.name || movie.title || title,
-                        progress: r.progress || 0,
-                        is_playable: r.is_playable || false,
-                        dl_status: r.dl_status || '',
-                        category: 'movies'
-                    })));
-                }
+                    card.dataset.movieTitle = title;
+                    card.dataset.movieYear = year || '';
 
-                if (source === 'downloaded' && movie.resolutions && movie.resolutions.length > 0) {
-                    card.oncontextmenu = (e) => {
-                        e.preventDefault();
-                        showDeleteConfirm(card, movie);
+                    // Clear and refresh resolution list
+                    const listEl = card.querySelector('.resolution-list');
+                    if (listEl) listEl.innerHTML = '';
+
+                    if (movie.resolutions && movie.resolutions.length > 0) {
+                        updateCardWithTorrent(card, movie.resolutions.map(r => ({
+                            resolution: r.resolution || 'Local',
+                            size: r.size || '0',
+                            seeders: 'Local',
+                            info_hash: r.info_hash || '',
+                            magnet: r.magnet || '',
+                            name: r.name || movie.title || title,
+                            progress: r.progress || 0,
+                            is_playable: r.is_playable || false,
+                            dl_status: r.dl_status || '',
+                            category: 'movies'
+                        })));
+                    }
+
+                    // Re-attach context menu for downloaded
+                    card.oncontextmenu = null;
+                    if (source === 'downloaded' && movie.resolutions && movie.resolutions.length > 0) {
+                        card.oncontextmenu = (e) => {
+                            e.preventDefault();
+                            showDeleteConfirm(card, movie);
+                        };
+                    }
+
+                    // Re-attach hover for non-downloaded
+                    card.onmouseenter = null;
+                    card.onmouseleave = null;
+                    if (movie.seeders) {
+                        card.dataset.movieTitle = title;
+                        const movieKey = getMovieUniqueKey(movie);
+                        card.onmouseenter = () => setupTorrentHover(card, movie);
+                        card.onmouseleave = () => clearTorrentHover(movieKey);
+                        if (torrentCache[movieKey]) {
+                            updateCardWithTorrent(card, torrentCache[movieKey]);
+                        }
+                    } else if (movie.poster) {
+                        card.dataset.movieTitle = title;
+                        const movieKey = getMovieUniqueKey(movie);
+                        card.onmouseenter = () => setupTorrentHover(card, movie);
+                        card.onmouseleave = () => clearTorrentHover(movieKey);
+                        if (torrentCache[movieKey]) {
+                            updateCardWithTorrent(card, torrentCache[movieKey]);
+                        }
+                    }
+
+                    // Re-attach click handler
+                    card._playMovie = () => playMovie(movie, source, card);
+                    card.onclick = async (e) => {
+                        if (e.target.closest('.resolution-item')) return;
+                        const statusResp = await fetch('/api/status');
+                        const statusData = await statusResp.json();
+                        if (statusData.status === 'ready' && statusData.file) {
+                            startPlayback(card.dataset.infoHash);
+                            return;
+                        }
+                        if (statusData.status === 'downloading') {
+                            if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                            if (statusData.tmdb_id && card.dataset.movieId && String(statusData.tmdb_id) !== String(card.dataset.movieId)) return;
+                        }
+                        card._playMovie();
                     };
+                } else {
+                    // Create new card
+                    card = document.createElement('div');
+                    card.className = 'movie-card';
+                    
+                    let posterHtml;
+                    if (movie.poster) {
+                        posterHtml = `<img src="${movie.poster}" alt="${movie.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="placeholder-thumb" style='display:none'></div>`;
+                    } else if (movie.name) {
+                        posterHtml = `<div class="placeholder-thumb"></div>`;
+                    } else {
+                        posterHtml = `<div class="placeholder-thumb"></div>`;
+                    }
+                    
+                    const rating = movie.rating ? Math.round(movie.rating / 2) : 0;
+                    const ratingDisplay = movie.rating ? `<span class="rating-value">${movie.rating}/10</span>` : '';
+                    const seeders = movie.seeders ? `Seeders: ${movie.seeders}` : '';
+                    const resolution = movie.resolution || '';
+                    const overview = movie.overview || '';
+                    
+                    let starsHtml = '';
+                    for (let i = 1; i <= 5; i++) {
+                        if (i <= rating) {
+                            starsHtml += '<span class="star filled">★</span>';
+                        } else {
+                            starsHtml += '<span class="star">★</span>';
+                        }
+                    }
+                    
+                    const resolutionHtml = resolution ? `<div class="resolution">${resolution}</div>` : '';
+
+                    card.innerHTML = `
+                        <div class="poster-container">
+                            ${posterHtml}
+                            <div class="description">${overview}</div>
+                        </div>
+                        <div class="download-bar">
+                            <div class="dl-buttons">
+                                <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
+                                <button class="dl-play" onclick="event.stopPropagation(); startPlaybackFromCard(event)">Play</button>
+                            </div>
+                        </div>
+                        <div class="info">
+                            <div class="year-rating"><span class="year-value">${year}</span> ${ratingDisplay}</div>
+                            <div class="stars">${starsHtml}</div>
+                            <div class="title">${title}</div>
+                            <div class="seeders">${seeders}</div>
+                            ${resolutionHtml}
+                            <div class="resolution-list"></div>
+                            <div class="torrent-status"></div>
+                        </div>
+                    `;
+                    
+                    if (dlKey) {
+                        card.dataset.infoHash = dlKey;
+                    }
+                    
+                    if (year) {
+                        card.dataset.movieYear = year;
+                    }
+                    
+                    if (movie.id) {
+                        card.dataset.movieId = movie.id;
+                    }
+                    card.dataset.source = source;
+                    
+                    if (movie.resolutions && movie.resolutions.length > 0) {
+                        updateCardWithTorrent(card, movie.resolutions.map(r => ({
+                            resolution: r.resolution || 'Local',
+                            size: r.size || '0',
+                            seeders: 'Local',
+                            info_hash: r.info_hash || '',
+                            magnet: r.magnet || '',
+                            name: r.name || movie.title || title,
+                            progress: r.progress || 0,
+                            is_playable: r.is_playable || false,
+                            dl_status: r.dl_status || '',
+                            category: 'movies'
+                        })));
+                    }
+
+                    if (source === 'downloaded' && movie.resolutions && movie.resolutions.length > 0) {
+                        card.oncontextmenu = (e) => {
+                            e.preventDefault();
+                            showDeleteConfirm(card, movie);
+                        };
+                    }
+
+                    if (movie.seeders) {
+                         const torrents = [{
+                             resolution: movie.resolution || 'N/A',
+                             size: movie.size || '0',
+                             seeders: movie.seeders,
+                             info_hash: movie.info_hash || '',
+                             magnet: movie.magnet || '',
+                             name: movie.name || title
+                         }];
+                         updateCardWithTorrent(card, torrents);
+                     } else if (movie.poster) {
+                          card.dataset.movieTitle = title;
+                          const movieKey = getMovieUniqueKey(movie);
+                          card.onmouseenter = () => setupTorrentHover(card, movie);
+                          card.onmouseleave = () => clearTorrentHover(movieKey);
+                          if (torrentCache[movieKey]) {
+                              updateCardWithTorrent(card, torrentCache[movieKey]);
+                          }
+                     }
+
+                    
+                     card._playMovie = () => playMovie(movie, source, card);
+                     card.onclick = async (e) => {
+                         if (e.target.closest('.resolution-item')) return;
+                         const statusResp = await fetch('/api/status');
+                         const statusData = await statusResp.json();
+                         if (statusData.status === 'ready' && statusData.file) {
+                             startPlayback(card.dataset.infoHash);
+                             return;
+                         }
+                         if (statusData.status === 'downloading') {
+                             if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                             if (statusData.tmdb_id && card.dataset.movieId && String(statusData.tmdb_id) !== String(card.dataset.movieId)) return;
+                         }
+                         card._playMovie();
+                     };
+
+                    // Add to cardMap
+                    cardMap.set(movie.id, card);
                 }
 
-                if (movie.seeders) {
-                     const torrents = [{
-                         resolution: movie.resolution || 'N/A',
-                         size: movie.size || '0',
-                         seeders: movie.seeders,
-                         info_hash: movie.info_hash || '',
-                         magnet: movie.magnet || '',
-                         name: movie.name || title
-                     }];
-                     updateCardWithTorrent(card, torrents);
-                 } else if (movie.poster) {
-                      card.dataset.movieTitle = title;
-                      const movieKey = getMovieUniqueKey(movie);
-                      card.onmouseenter = () => setupTorrentHover(card, movie);
-                      card.onmouseleave = () => clearTorrentHover(movieKey);
-                      if (torrentCache[movieKey]) {
-                          updateCardWithTorrent(card, torrentCache[movieKey]);
-                      }
-
-                 }
-
-                
-                 card._playMovie = () => playMovie(movie, source, card);
-                 card.onclick = async (e) => {
-                     if (e.target.closest('.resolution-item')) return;
-                     const statusResp = await fetch('/api/status');
-                     const statusData = await statusResp.json();
-                     // Allow play if: ready with file exists (don't block on info_hash comparison)
-                     if (statusData.status === 'ready' && statusData.file) {
-                         startPlayback(card.dataset.infoHash);
-                         return;
-                     }
-                     // Allow play if no active download OR same torrent
-                     if (statusData.status === 'downloading') {
-                         if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
-                         if (statusData.tmdb_id && card.dataset.movieId && String(statusData.tmdb_id) !== String(card.dataset.movieId)) return;
-                     }
-                     card._playMovie();
-                 };
                 grid.appendChild(card);
             });
             
