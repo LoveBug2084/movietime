@@ -30,9 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # PyQt5 imports for desktop app
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import Qt, QUrl, QEvent
-from PyQt5.QtGui import QIcon
-from PyQt5.QtNetwork import QLocalServer
+from PyQt5.QtCore import Qt, QUrl
 
 # libtorrent for sequential torrent downloads
 import libtorrent as lt
@@ -77,8 +75,6 @@ NEW_MOVIES_ACTIVE = os.path.join(SCRIPT_DIR, "database/new_movies_active.json")
 NEW_MOVIES_BUILDING = os.path.join(SCRIPT_DIR, "database/new_movies_building.json")
 os.makedirs(os.path.join(SCRIPT_DIR, "database"), exist_ok=True)
 
-CACHE_MAX_PAGES = 500  # TMDb /popular API max is 500 pages
-
 # TMDB genre IDs (0 = Popular as special entry)
 GENRE_IDS = [0, 28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37]
 GENRE_NAMES = {0: "Popular", 28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Science Fiction", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"}
@@ -95,6 +91,7 @@ movie_ids = set()  # O(1) deduplication
 movie_count = 0  # Track total movie count for incremental sync
 
 new_movies_lock = threading.Lock()  # Protect new_movies file operations
+db_lock = threading.Lock()  # Protect main database file operations (active/building swap)
 
 # Rate limiting: 24 req/sec = 1/24 sec between requests
 SYNC_RATE_LIMIT = 1 / 24
@@ -109,6 +106,15 @@ MAX_CONCURRENT = 1
 
 def ensure_database_files():
     """Ensure both movies_active.json and movies_building.json exist"""
+    # Clean up orphaned temp files from interrupted swaps
+    tmp_file = CACHE_FILE + ".tmp"
+    if os.path.exists(tmp_file):
+        try:
+            os.remove(tmp_file)
+            print("Cleaned up orphaned temp file")
+        except:
+            pass
+    
     active_exists = os.path.exists(CACHE_FILE)
     building_exists = os.path.exists(BUILDING_FILE)
     
@@ -174,19 +180,6 @@ def load_movies_from_cache():
     movie_count = 0
     return []
 
-def save_movies_atomic(movies):
-    """Atomically write movies to cache file as line-delimited JSON"""
-    temp_file = CACHE_FILE + ".tmp"
-    try:
-        with open(temp_file, "w") as f:
-            for m in movies:
-                f.write(json.dumps(m) + "\n")
-        os.replace(temp_file, CACHE_FILE)
-    except Exception as e:
-        print(f"Error saving cache: {e}")
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-
 def load_sync_state():
     """Load sync state from file"""
     global sync_state
@@ -245,16 +238,19 @@ def load_json_file(filepath):
     if not os.path.exists(filepath):
         return []
     movies = []
-    try:
-        with open(filepath, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    movies.append(json.loads(line))
-        return movies
-    except Exception as e:
-        print(f"Error loading {filepath}: {e}")
-        return []
+    bad_lines = 0
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                movies.append(json.loads(line))
+            except Exception:
+                bad_lines += 1
+    if bad_lines:
+        print(f"Skipped {bad_lines} bad lines in {filepath}")
+    return movies
 
 def atomic_swap_and_sync():
     """Atomic swap: building → active, active → building, then append new movies to building"""
@@ -339,14 +335,15 @@ def background_sync():
 
         if new_movies:
             print(f"{phase_label}")
-            append_to_building(new_movies)
-            
-            if validate_json_file(BUILDING_FILE):
-                atomic_swap_and_sync()
+            with db_lock:
                 append_to_building(new_movies)
-            else:
-                recover_from_corruption()
-                append_to_building(new_movies)
+                
+                if validate_json_file(BUILDING_FILE):
+                    atomic_swap_and_sync()
+                    append_to_building(new_movies)
+                else:
+                    recover_from_corruption()
+                    append_to_building(new_movies)
             
             global movie_count
             movie_count += len(new_movies)
@@ -441,85 +438,16 @@ def fetch_movie_by_genre(genre_id, page):
         print(f"Error fetching page {page} for genre {genre_id}: {e}")
         return [], 0
 
-def fetch_and_cache_popular_movies():
-    """Fetch ALL available movies from TMDb using async parallel requests"""
-    global cache_progress
-
-    async def async_fetch_all():
-        connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-
-            async def fetch_page(page):
-                if sync_stop_event.is_set():
-                    return []
-                url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=en-US&page={page}"
-                async with semaphore:
-                    await asyncio.sleep(SYNC_RATE_LIMIT)
-                    async with session.get(url, timeout=15) as resp:
-                        data = await resp.json()
-                        movies = []
-                        for m in data.get("results", []):
-                            movies.append({
-                                "id": m.get("id"),
-                                "title": m.get("title"),
-                                "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-                                "overview": m.get("overview", ""),
-                                "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
-                                "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-                                "genre_ids": m.get("genre_ids", [])
-                            })
-                        return movies, data.get("total_pages", 1)
-
-            tasks = [fetch_page(page) for page in range(1, 501)]
-            results = await asyncio.gather(*tasks)
-
-            all_movies = []
-            total_pages = 1
-            for movies, tp in results:
-                all_movies.extend(movies)
-                if tp > total_pages:
-                    total_pages = tp
-
-            return all_movies, total_pages
-
-    print("Building movie cache with async parallel fetching...")
-    cache_progress = {"pages_fetched": 0, "total_pages": 500, "status": "running"}
-
-    all_movies, total_pages = asyncio.run(async_fetch_all())
-
-    cache_data = {
-        "movies": all_movies,
-        "timestamp": time.time(),
-        "total": len(all_movies),
-        "type": "all"
-    }
-
-    try:
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache_data, f)
-        print(f"Complete cache saved: {len(all_movies)} movies!")
-    except Exception as e:
-        print(f"Error saving cache: {e}")
-
-    cache_progress["status"] = "complete"
-
-    return cache_data
-
 def load_cached_movies():
-    """Load movies from cache file"""
-    if not os.path.exists(CACHE_FILE):
-        return None
-    
-    try:
-        movies = load_json_file(CACHE_FILE)
+    """Load movies from cache file, falling back to building file"""
+    for filepath in [CACHE_FILE, BUILDING_FILE]:
+        if not os.path.exists(filepath):
+            continue
+        movies = load_json_file(filepath)
         if movies:
-            print(f"Loaded {len(movies)} movies from cache")
+            print(f"Loaded {len(movies)} movies from {os.path.basename(filepath)}")
             return {"movies": movies}
-        return None
-    except Exception as e:
-        print(f"Error loading cache: {e}")
-        return None
+    return None
 
 
 def search_year_page(year, page):
@@ -815,63 +743,8 @@ def search_tmdb_page(query, page):
         print(f"Error fetching search page {page}: {e}")
         return []
 
-def search_tmdb_multi_page(query, sort="all"):
-    """Search TMDb with multiple pages based on sort mode"""
-    MAX_MOVIES = 500
-    MAX_PAGES = 25
-
-    first_page = search_tmdb_page(query, 1)
-    if not first_page:
-        return []
-
-    pages_needed = min(MAX_PAGES, (MAX_MOVIES // 20) + 1)
-
-    futures = {executor.submit(search_tmdb_page, query, page): page for page in range(2, pages_needed + 1)}
-
-    all_movies = []
-
-    for m in first_page:
-        year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
-        all_movies.append({
-            "id": m.get("id"),
-            "title": m.get("title"),
-            "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-            "overview": m.get("overview", ""),
-            "year": year_val,
-            "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-            "source": "tmdb"
-        })
-
-    for future in as_completed(futures):
-        try:
-            results = future.result()
-            for m in results:
-                year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
-                all_movies.append({
-                    "id": m.get("id"),
-                    "title": m.get("title"),
-                    "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-                    "overview": m.get("overview", ""),
-                    "year": year_val,
-                    "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-                    "source": "tmdb"
-                })
-        except Exception as e:
-            print(f"Error collecting search results: {e}")
-
-    if sort == "title":
-        all_movies.sort(key=lambda x: (x.get("title") or "").lower())
-    elif sort == "description":
-        query_lower = query.lower()
-        all_movies = [m for m in all_movies if query_lower in (m.get("overview") or "").lower()]
-    elif sort == "year":
-        all_movies.sort(key=lambda x: (x.get("year") or ""), reverse=True)
-
-    return all_movies
-
 # Active streaming searches with background fetching
 active_searches = {}
-search_cleanup_timer = None
 
 def start_search_background(search_id, query, sort, category, year=""):
     """Background thread that fetches remaining pages for a search"""
@@ -1454,7 +1327,6 @@ def api_movies_all():
         if validate_json_file(NEW_MOVIES_BUILDING):
             new_movies_swap()
         else:
-            import shutil
             if os.path.exists(NEW_MOVIES_ACTIVE):
                 shutil.copy(NEW_MOVIES_ACTIVE, NEW_MOVIES_BUILDING)
             else:
@@ -1466,15 +1338,16 @@ def api_movies_all():
         new_movies_data = load_json_file(NEW_MOVIES_ACTIVE)
         
         if new_movies_data:
-            append_to_building(new_movies_data)
-            if validate_json_file(BUILDING_FILE):
-                atomic_swap_and_sync()
+            with db_lock:
                 append_to_building(new_movies_data)
-            else:
-                recover_from_corruption()
-        
-        main_movies = load_json_file(CACHE_FILE)
-        total_in_database = len(main_movies) if main_movies else 0
+                if validate_json_file(BUILDING_FILE):
+                    atomic_swap_and_sync()
+                    append_to_building(new_movies_data)
+                else:
+                    recover_from_corruption()
+            
+            main_movies = load_json_file(CACHE_FILE)
+            total_in_database = len(main_movies) if main_movies else 0
         
         with open(NEW_MOVIES_BUILDING, "w") as f:
             pass
@@ -1586,9 +1459,7 @@ def api_search():
         
         with active_searches[search_id]["lock"]:
             search = active_searches[search_id]
-            all_results = list(search["results"])
             pages_fetched = search["pages_fetched"]
-            total_pages_est = search["total_pages"]
             done = search["done"]
             combined_results = list(search.get("combined", []))
     else:
@@ -1633,123 +1504,6 @@ def api_search():
         }
     })
 
-
-    if not query and not year:
-        all_movies = get_popular_movies().get("movies", [])
-        total_results = len(all_movies)
-        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
-        start_idx = (page - 1) * MOVIES_PER_PAGE
-        end_idx = start_idx + MOVIES_PER_PAGE
-        return jsonify({
-            "results": all_movies[start_idx:end_idx],
-            "page": page,
-            "total_pages": total_pages,
-            "total_results": total_results,
-            "sources": {"popular": total_results},
-            "streaming": False
-    })
-    
-    if not query and year and year.isdigit() and len(year) == 4:
-        all_results = search_year_parallel(year)
-        total_results = len(all_results)
-        total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
-        start_idx = (page - 1) * MOVIES_PER_PAGE
-        end_idx = start_idx + MOVIES_PER_PAGE
-        return jsonify({
-            "results": all_results[start_idx:end_idx],
-            "page": page,
-            "total_pages": total_pages,
-            "total_results": total_results,
-            "sources": {"tmdb": total_results},
-            "streaming": False
-        })
-
-    # Search - default to local-only (cache + magnetz), skip TMDb
-    local_only = request.args.get("local", "1") != "0"
-    import uuid
-    search_id = str(uuid.uuid4())
-    
-    # Get total database count
-    cache_data = load_cached_movies()
-    total_database = len(cache_data.get("movies", [])) if cache_data else 0
-
-    # Cancel any previous active searches (frontend should handle this, but safety net)
-    for sid in list(active_searches.keys()):
-        active_searches[sid]["cancelled"] = True
-
-    # Create search entry
-    active_searches[search_id] = {
-        "results": [],
-        "pages_fetched": 0,
-        "total_pages": 0,
-        "done": False,
-        "cancelled": False,
-        "lock": threading.Lock(),
-        "created": time.time()
-    }
-
-    # Only fetch TMDb if not local_only
-    if not local_only:
-        # Start background fetcher
-        threading.Thread(
-            target=start_search_background,
-            args=(search_id, query, sort, category, year),
-            daemon=True
-        ).start()
-
-        # Wait briefly for first page to populate
-        # time.sleep(1.5)
-
-
-        with active_searches[search_id]["lock"]:
-            search = active_searches[search_id]
-            all_results = list(search["results"])
-            pages_fetched = search["pages_fetched"]
-            total_pages_est = search["total_pages"]
-            done = search["done"]
-            combined_results = list(search.get("combined", []))
-    else:
-        # Local-only search: immediately build combined results from cache
-        pages_fetched = 0
-        done = True
-        combined_results = []
-        with active_searches[search_id]["lock"]:
-            search = active_searches[search_id]
-            search["done"] = True
-            # Initialize combined for rebuild_combined_final
-            search["combined"] = []
-
-    # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year)
-
-    
-    with active_searches[search_id]["lock"]:
-        search = active_searches[search_id]
-        combined_results = list(search.get("combined", []))
-
-    total_results = len(combined_results)
-    total_pages = search["total_pages"]
-    start_idx = (page - 1) * MOVIES_PER_PAGE
-    end_idx = start_idx + MOVIES_PER_PAGE
-    page_results = combined_results[start_idx:end_idx]
-
-    return jsonify({
-        "results": page_results,
-        "page": page,
-        "total_pages": total_pages,
-        "total_results": total_results,
-        "total_database": total_database,
-        "search_id": search_id,
-        "pages_fetched": pages_fetched,
-        "done": done,
-        "streaming": True,
-        "combined": combined_results,
-        "sources": {
-            "cache": 0,
-            "tmdb": total_results,
-            "magnetz": 0
-        }
-    })
 
 @app.route("/api/search/page")
 def api_search_page():
@@ -2246,15 +2000,6 @@ def api_download_delete_hash(tmdb_id, info_hash):
         shutil.rmtree(tmdb_path)
 
     return jsonify({"success": True})
-
-def is_download_active():
-    """Check if libtorrent download is still in progress"""
-    with download_lock:
-        handle = current_download["handle"]
-    if handle and handle.is_valid():
-        status = handle.status()
-        return status.state not in (lt.torrent_status.seeding, lt.torrent_status.finished)
-    return False
 
 @app.route("/api/play", methods=["POST"])
 def api_play():
