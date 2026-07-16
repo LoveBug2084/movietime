@@ -22,9 +22,10 @@ import time
 import sys
 import threading
 import json
+import secrets
 import requests
 import shutil
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, make_response
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # PyQt5 imports for desktop app
@@ -36,6 +37,14 @@ from PyQt5.QtCore import Qt, QUrl
 import libtorrent as lt
 
 app = Flask(__name__, template_folder=os.path.join(SCRIPT_DIR, "templates"))
+
+ACCESS_TOKEN = None
+
+@app.before_request
+def check_access():
+    token = request.args.get('token') or request.cookies.get('access_token')
+    if token != ACCESS_TOKEN:
+        return jsonify({"error": "unauthorized"}), 403
 
 DEBUG_LOG = os.path.join(SCRIPT_DIR, "debug.log")
 DEBUG = "--debug" in sys.argv or "-debug" in sys.argv
@@ -1259,7 +1268,10 @@ def apply_sequential_priority(handle):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    response = make_response(render_template("index.html"))
+    if request.args.get('token') == ACCESS_TOKEN:
+        response.set_cookie('access_token', ACCESS_TOKEN, httponly=True, samesite='Strict')
+    return response
 
 @app.route("/api/popular")
 def api_popular():
@@ -2196,7 +2208,7 @@ class MainWindow(QMainWindow):
         
         self.web_view = QWebEngineView()
         self.web_view.setContextMenuPolicy(Qt.PreventContextMenu)
-        self.web_view.setUrl(QUrl("http://127.0.0.1:65000"))
+        self.web_view.setUrl(QUrl(f"http://127.0.0.1:65000/?token={ACCESS_TOKEN}"))
         
         layout.addWidget(self.web_view)
 
@@ -2249,8 +2261,10 @@ def main():
     """Entry point for desktop app"""
     import sys
     import signal
-    global sync_thread
- 
+    global sync_thread, ACCESS_TOKEN
+
+    ACCESS_TOKEN = secrets.token_hex(32)
+
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
  

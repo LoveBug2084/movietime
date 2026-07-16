@@ -1194,7 +1194,7 @@
         function renderMovies(movies, source) {
             const wasStreaming = isStreaming;
             const wasPolling = downloadPollInterval !== null;
-            const prevInfoHash = activeCard ? activeCard.dataset.infoHash : null;
+            const prevInfoHash = activeCard ? (activeCard.querySelector('.resolution-item')?.dataset.infoHash || null) : null;
             const prevMovieId = activeCard ? activeCard.dataset.movieId : null;
             if (downloadPollInterval) {
                 clearInterval(downloadPollInterval);
@@ -1225,8 +1225,6 @@
 
                 const title = movie.title || movie.name || 'Unknown';
                 const year = movie.year || '';
-                const infoHash = movie.info_hash || '';
-                const dlKey = infoHash || '';
 
                 const existingCard = cardMap.get(movie.id);
                 let card;
@@ -1237,7 +1235,6 @@
 
                     // Update dataset attributes
                     card.dataset.source = source;
-                    card.dataset.infoHash = dlKey || '';
                     card.dataset.movieId = movie.id;
                     card.dataset.movieTitle = title;
                     card.dataset.movieYear = year || '';
@@ -1298,11 +1295,13 @@
                         const statusResp = await fetch('/api/status');
                         const statusData = await statusResp.json();
                         if (statusData.status === 'ready' && statusData.file) {
-                            startPlayback(card.dataset.infoHash);
+                            const h = card.querySelector('.resolution-item')?.dataset.infoHash;
+                            if (h) startPlayback(h);
                             return;
                         }
                         if (statusData.status === 'downloading') {
-                            if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                            const hasMatch = card.querySelector(`.resolution-item[data-info-hash="${statusData.info_hash}"]`);
+                            if (statusData.info_hash && !hasMatch) return;
                             if (statusData.tmdb_id && card.dataset.movieId && String(statusData.tmdb_id) !== String(card.dataset.movieId)) return;
                         }
                         card._playMovie();
@@ -1359,10 +1358,6 @@
                             <div class="torrent-status"></div>
                         </div>
                     `;
-                    
-                    if (dlKey) {
-                        card.dataset.infoHash = dlKey;
-                    }
                     
                     if (year) {
                         card.dataset.movieYear = year;
@@ -1422,11 +1417,13 @@
                          const statusResp = await fetch('/api/status');
                          const statusData = await statusResp.json();
                          if (statusData.status === 'ready' && statusData.file) {
-                             startPlayback(card.dataset.infoHash);
+                             const h = card.querySelector('.resolution-item')?.dataset.infoHash;
+                             if (h) startPlayback(h);
                              return;
                          }
                          if (statusData.status === 'downloading') {
-                             if (statusData.info_hash && card.dataset.infoHash && statusData.info_hash !== card.dataset.infoHash) return;
+                             const hasMatch = card.querySelector(`.resolution-item[data-info-hash="${statusData.info_hash}"]`);
+                             if (statusData.info_hash && !hasMatch) return;
                              if (statusData.tmdb_id && card.dataset.movieId && String(statusData.tmdb_id) !== String(card.dataset.movieId)) return;
                          }
                          card._playMovie();
@@ -1445,8 +1442,6 @@
                 let card;
                 if (prevMovieId) {
                     card = document.querySelector(`.movie-card[data-movie-id="${prevMovieId}"]`);
-                } else {
-                    card = document.querySelector(`.movie-card[data-info-hash="${prevInfoHash}"]`);
                 }
                 if (card) {
                     isStreaming = wasStreaming;
@@ -1496,8 +1491,8 @@
             
             listEl.innerHTML = '';
             let anyPlayable = false;
-            let bestPlayableHash = null;
-            const activeHash = activeCard ? activeCard.dataset.infoHash : null;
+            const activeItem = activeCard ? activeCard.querySelector('.resolution-item') : null;
+            const activeHash = activeItem ? activeItem.dataset.infoHash : null;
             torrents.sort((a, b) => {
                 const aActive = a.info_hash && activeHash && a.info_hash === activeHash ? 1 : 0;
                 const bActive = b.info_hash && activeHash && b.info_hash === activeHash ? 1 : 0;
@@ -1560,16 +1555,11 @@
                  if (torrent.is_playable) {
                     anyPlayable = true;
                     item.title = 'Ready to play';
-                    // Use the first playable torrent found (they are sorted by score/seeders)
-                    if (!bestPlayableHash) {
-                        bestPlayableHash = torrent.info_hash;
-                    }
                 }
 
                 item.onclick = (e) => {
                     e.stopPropagation();
                     if (torrent.is_playable) {
-                        card.dataset.infoHash = torrent.info_hash;
                         startPlayback(torrent.info_hash);
                     } else {
                         startTorrent(torrent, card);
@@ -1593,9 +1583,6 @@
                 card.classList.add('playable');
                 const btn = card.querySelector('.dl-play');
                 if (btn) btn.classList.add('ready');
-                if (bestPlayableHash) {
-                    card.dataset.infoHash = bestPlayableHash;
-                }
             }
 
         }
@@ -1676,7 +1663,7 @@
                 if ((data.status === 'downloading' || data.status === 'ready') && data.info_hash) {
                     const cards = document.querySelectorAll('.movie-card');
                     for (const c of cards) {
-                        if (c.dataset.infoHash === data.info_hash) {
+                        if (c.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`)) {
                             const downloaded = data.downloaded_size || 0;
                             let displayPercent;
                             if (downloaded < HEADER_MIN_SIZE) {
@@ -1723,12 +1710,10 @@
                         if (downloadPollInterval) clearInterval(downloadPollInterval);
                         activeCard = card;
                         card.classList.add('downloading');
-                        card.dataset.infoHash = info_hash;
                         downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
                         return;
                     }
                     if (statusData.status === 'ready' || (statusData.status === 'idle' && statusData.file)) {
-                        card.dataset.infoHash = info_hash;
                         startPlayback(info_hash);
                         return;
                     }
@@ -1751,7 +1736,6 @@
 
             activeCard = card;
             card.classList.add('downloading');
-            card.dataset.infoHash = info_hash;
 
             try {
                 const tmdbId = card.dataset.movieId || '';
@@ -1793,7 +1777,8 @@
 
             const statusResp = await fetch('/api/status');
             const statusData = await statusResp.json();
-            const cardInfoHash = card.dataset.infoHash || movie.info_hash || '';
+            const activeItem = card.querySelector('.resolution-item');
+            const cardInfoHash = activeItem ? activeItem.dataset.infoHash : '';
             const statusInfoHash = statusData.info_hash || '';
             const cardMovieId = card.dataset.movieId;
             const tmdbMatch = !statusData.tmdb_id || !cardMovieId || String(statusData.tmdb_id) === String(cardMovieId);
@@ -1936,12 +1921,12 @@
         async function startPlaybackFromCard(event) {
             const card = event.target.closest('.movie-card');
             if (!card) return;
-            const hash = card.dataset.infoHash;
-            if (hash) {
+            const activeItem = card.querySelector('.resolution-item');
+            if (activeItem && activeItem.dataset.infoHash) {
                 card.classList.add('playable');
                 const btn = card.querySelector('.dl-play');
                 if (btn) btn.classList.add('ready');
-                startPlayback(hash);
+                startPlayback(activeItem.dataset.infoHash);
                 return;
             }
             const movieId = parseInt(card.dataset.movieId);
@@ -1973,7 +1958,14 @@
         
         async function startPlayback(infoHash) {
             isStreaming = true;
-            const card = document.querySelector(`.movie-card[data-info-hash="${infoHash}"]`);
+            let card = null;
+            const allCards = document.querySelectorAll('.movie-card');
+            for (const c of allCards) {
+                if (c.querySelector(`.resolution-item[data-info-hash="${infoHash}"]`)) {
+                    card = c;
+                    break;
+                }
+            }
             const tmdbId = card ? card.dataset.movieId : null;
             if (card) {
                 if (activeCard && activeCard !== card) {
@@ -2020,7 +2012,7 @@
                     if (data.info_hash) {
                         const cards = document.querySelectorAll('.movie-card');
                         cards.forEach(card => {
-                            if (card.dataset.infoHash === data.info_hash &&
+                            if (card.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`) &&
                                 (!data.tmdb_id || !card.dataset.movieId || String(data.tmdb_id) === String(card.dataset.movieId))) {
                                 card.classList.add('playable');
                                 const btn = card.querySelector('.dl-play');
