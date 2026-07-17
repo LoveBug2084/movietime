@@ -641,9 +641,6 @@ def search_apibay(query, category="all", year=""):
             seeders = r.get("seeders", "0")
             cat = r.get("category", "")
             
-            if allowed_cats and cat not in allowed_cats:
-                continue
-            
             if not info_hash or len(info_hash) != 40:
                 continue
             
@@ -961,6 +958,7 @@ current_download = {
     "video_file": None,
     "tmdb_id": None,
 }
+last_cancel_reason = {"reason": None, "info_hash": None, "timestamp": 0}
 
 # mpv player state
 mpv_player = {
@@ -970,6 +968,80 @@ mpv_player = {
 }
 mpv_lock = threading.Lock()
 
+
+def validate_torrent_contents(handle, info_hash, tmdb_id, name):
+    """Check torrent file list for video files. Cancel download if none found."""
+    video_exts = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
+    non_video_exts = {".m4b", ".mp3", ".flac", ".aac", ".ogg", ".wma",
+                      ".epub", ".mobi", ".azw3", ".azw", ".cbz", ".cbr",
+                      ".pdf", ".txt", ".doc", ".docx"}
+
+    try:
+        ti = handle.get_torrent_info()
+        if not ti:
+            return True
+
+        files = ti.files()
+        file_list = []
+        for i, f in enumerate(files):
+            ext = os.path.splitext(f.path)[-1].lower()
+            file_list.append({"path": f.path, "ext": ext, "size": f.size})
+
+        has_video = any(f["ext"] in video_exts for f in file_list)
+        if has_video:
+            return True
+
+        non_video = [f for f in file_list if f["ext"] in non_video_exts]
+        if non_video:
+            exts = set(f["ext"] for f in non_video)
+            reason = f"Not a movie - torrent contains: {', '.join(sorted(exts))}"
+        else:
+            exts = set(f["ext"] for f in file_list if f["ext"])
+            reason = f"No video files found - torrent contains: {', '.join(sorted(exts))}"
+
+        print(f"Cancelling download: {reason} (hash: {info_hash})")
+
+        try:
+            lt_session.remove_torrent(handle, False)
+        except:
+            pass
+
+        with download_lock:
+            current_download["handle"] = None
+            current_download["video_file"] = None
+            current_download["info_hash"] = None
+
+        last_cancel_reason["reason"] = reason
+        last_cancel_reason["info_hash"] = info_hash
+        last_cancel_reason["timestamp"] = time.time()
+
+        save_torrent_status(tmdb_id, info_hash, {
+            "progress": 0,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "status": "cancelled",
+            "is_playable": False,
+            "last_updated": time.time(),
+            "magnet": "",
+            "name": name,
+            "tmdb_id": tmdb_id,
+            "cancel_reason": reason,
+        })
+
+        tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
+        hash_dir = os.path.join(DOWNLOAD_DIR, tmdb_str, info_hash)
+        if os.path.isdir(hash_dir):
+            try:
+                shutil.rmtree(hash_dir, ignore_errors=True)
+                print(f"Cleaned up invalid torrent files: {hash_dir}")
+            except Exception as e:
+                print(f"Error cleaning up torrent files: {e}")
+
+        return False
+
+    except Exception as e:
+        print(f"Error validating torrent contents: {e}")
+        return True
 
 
 def download_torrent(magnet_link, info_hash, name, tmdb_id=None):
@@ -1018,6 +1090,8 @@ def download_torrent(magnet_link, info_hash, name, tmdb_id=None):
             time.sleep(0.5)
             if handle.has_metadata():
                 print(f"Metadata received for: {name}")
+                if not validate_torrent_contents(handle, info_hash, tmdb_id, name):
+                    return
                 apply_sequential_priority(handle)
                 return
         print(f"Warning: metadata not received within 60s for: {name}")
@@ -1907,6 +1981,14 @@ def api_status():
                 "tmdb_id": tmdb_id,
             })
 
+    if last_cancel_reason["reason"] and time.time() - last_cancel_reason["timestamp"] < 10:
+        return jsonify({
+            "status": "cancelled",
+            "is_valid": False,
+            "cancel_reason": last_cancel_reason["reason"],
+            "info_hash": last_cancel_reason["info_hash"],
+        })
+
     return jsonify({"status": "idle", "is_valid": False})
 
 HEADER_MIN_SIZE = 100 * 1024 * 1024  # 100MB minimum
@@ -1937,15 +2019,9 @@ def api_download_playable():
 
         return jsonify({"playable": True, "downloaded": downloaded, "file_size": file_size})
 
-@app.route("/api/download/path/<int:tmdb_id>")
-def api_download_path(tmdb_id):
-    """Return the filesystem path for a download"""
-    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
-    return jsonify({"path": tmdb_path})
-
-@app.route("/api/download/delete/<int:tmdb_id>", methods=["DELETE"])
-def api_download_delete(tmdb_id):
-    """Delete a download directory by tmdb_id — cancels active download first if matching"""
+@app.route("/api/download/delete/hash/<info_hash>", methods=["DELETE"])
+def api_download_delete_hash_only(info_hash):
+    """Delete a download by info_hash alone, scanning all tmdb dirs"""
     with mpv_lock:
         if mpv_player["process"]:
             try:
@@ -1957,41 +2033,8 @@ def api_download_delete(tmdb_id):
             mpv_player["playing"] = False
 
     with download_lock:
-        active_tmdb = current_download.get("tmdb_id")
-        if active_tmdb is not None and active_tmdb == tmdb_id:
-            handle = current_download.get("handle")
-            if handle and handle.is_valid():
-                try:
-                    lt_session.remove_torrent(handle, True)
-                except:
-                    pass
-            current_download["handle"] = None
-            current_download["video_file"] = None
-            current_download["info_hash"] = None
-
-    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
-    if not os.path.isdir(tmdb_path):
-        return jsonify({"error": "Not found"}), 404
-    shutil.rmtree(tmdb_path)
-    return jsonify({"success": True})
-
-@app.route("/api/download/delete/<int:tmdb_id>/<info_hash>", methods=["DELETE"])
-def api_download_delete_hash(tmdb_id, info_hash):
-    """Delete a single torrent by info_hash within a tmdb_id directory"""
-    with mpv_lock:
-        if mpv_player["process"]:
-            try:
-                mpv_player["process"].terminate()
-                mpv_player["process"].wait(timeout=5)
-            except:
-                mpv_player["process"].kill()
-            mpv_player["process"] = None
-            mpv_player["playing"] = False
-
-    with download_lock:
-        active_tmdb = current_download.get("tmdb_id")
         active_hash = current_download.get("info_hash")
-        if active_tmdb is not None and active_tmdb == tmdb_id and active_hash == info_hash:
+        if active_hash == info_hash:
             handle = current_download.get("handle")
             if handle and handle.is_valid():
                 try:
@@ -2002,16 +2045,19 @@ def api_download_delete_hash(tmdb_id, info_hash):
             current_download["video_file"] = None
             current_download["info_hash"] = None
 
-    hash_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
-    if not os.path.isdir(hash_path):
+    if not os.path.isdir(DOWNLOAD_DIR):
         return jsonify({"error": "Not found"}), 404
-    shutil.rmtree(hash_path)
 
-    tmdb_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id))
-    if os.path.isdir(tmdb_path) and not os.listdir(tmdb_path):
-        shutil.rmtree(tmdb_path)
+    for tmdb_dir in os.listdir(DOWNLOAD_DIR):
+        hash_path = os.path.join(DOWNLOAD_DIR, tmdb_dir, info_hash)
+        if os.path.isdir(hash_path):
+            shutil.rmtree(hash_path)
+            tmdb_path = os.path.join(DOWNLOAD_DIR, tmdb_dir)
+            if os.path.isdir(tmdb_path) and not os.listdir(tmdb_path):
+                shutil.rmtree(tmdb_path)
+            return jsonify({"success": True})
 
-    return jsonify({"success": True})
+    return jsonify({"error": "Not found"}), 404
 
 @app.route("/api/play", methods=["POST"])
 def api_play():

@@ -413,6 +413,25 @@
           .movie-card .resolution-item:hover {
             background: #444;
         }
+        .movie-card .resolution-item [data-tooltip] {
+            position: relative;
+        }
+        .movie-card .resolution-item [data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: #ddd;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            z-index: 10;
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
         .movie-card .resolution-item .res-label {
             color: #ffff00;
             font-weight: bold;
@@ -803,25 +822,26 @@
             const yesBtn = document.getElementById('modal-yes');
             const noBtn = document.getElementById('modal-no');
             const closeBtn = document.getElementById('modal-close');
-            let path = '';
 
             function hide() {
                 overlay.classList.remove('visible');
             }
 
             const title = movie.title || movie.name || 'Unknown';
-            fetch('/api/download/path/' + movie.id)
-                .then(r => r.json())
-                .then(data => { path = data.path; msg.innerHTML = 'Delete <strong>' + title + '</strong>?<br><code>' + path + '</code>'; })
-                .catch(() => { msg.innerHTML = 'Delete <strong>' + title + '</strong>?'; });
+            msg.innerHTML = 'Delete <strong>' + title + '</strong>?';
             overlay.classList.add('visible');
             yesBtn.onclick = () => {
-                msg.innerHTML = 'Are you sure?<br><strong>' + title + '</strong><br><code>' + path + '</code>';
+                msg.innerHTML = 'Are you sure?<br><strong>' + title + '</strong>';
                 yesBtn.onclick = async () => {
                     hide();
                     try {
-                        const resp = await fetch('/api/download/delete/' + movie.id, { method: 'DELETE' });
-                        if (resp.ok) {
+                        const hashes = (movie.resolutions || []).map(r => r.info_hash).filter(Boolean);
+                        let allOk = true;
+                        for (const hash of hashes) {
+                            const resp = await fetch('/api/download/delete/hash/' + hash, { method: 'DELETE' });
+                            if (!resp.ok) { allOk = false; break; }
+                        }
+                        if (allOk && hashes.length > 0) {
                             libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
                             displayMovies.forEach(m => { if (m.id === movie.id) delete m.resolutions; });
                             card.remove();
@@ -856,23 +876,19 @@
             const closeBtn = document.getElementById('modal-close');
             const infoHash = item.dataset.infoHash;
             const name = item.dataset.torrentName || 'Unknown';
-            let path = '';
 
             function hide() {
                 overlay.classList.remove('visible');
             }
 
-            fetch('/api/download/path/' + movie.id)
-                .then(r => r.json())
-                .then(data => { path = data.path + '/' + infoHash; msg.innerHTML = 'Delete <strong>' + name + '</strong>?<br><code>' + path + '</code>'; })
-                .catch(() => { msg.innerHTML = 'Delete <strong>' + name + '</strong>?'; });
+            msg.innerHTML = 'Delete <strong>' + name + '</strong>?';
             overlay.classList.add('visible');
             yesBtn.onclick = () => {
-                msg.innerHTML = 'Are you sure?<br><strong>' + name + '</strong><br><code>' + path + '</code>';
+                msg.innerHTML = 'Are you sure?<br><strong>' + name + '</strong>';
                 yesBtn.onclick = async () => {
                     hide();
                     try {
-                        const resp = await fetch('/api/download/delete/' + movie.id + '/' + infoHash, { method: 'DELETE' });
+                        const resp = await fetch('/api/download/delete/hash/' + infoHash, { method: 'DELETE' });
                         if (resp.ok) {
                             const progressFill = item.querySelector('.res-progress-fill');
                             const progressEl = item.querySelector('.res-progress');
@@ -1247,7 +1263,7 @@
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
                             resolution: r.resolution || 'Local',
                             size: r.size || '0',
-                            seeders: 'Local',
+                            seeders: (r.progress >= 100 && r.is_playable) ? 'Ready' : '',
                             info_hash: r.info_hash || '',
                             magnet: r.magnet || '',
                             name: r.name || movie.title || title,
@@ -1372,7 +1388,7 @@
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
                             resolution: r.resolution || 'Local',
                             size: r.size || '0',
-                            seeders: 'Local',
+                            seeders: (r.progress >= 100 && r.is_playable) ? 'Ready' : '',
                             info_hash: r.info_hash || '',
                             magnet: r.magnet || '',
                             name: r.name || movie.title || title,
@@ -1479,16 +1495,25 @@
                 return;
             }
             
-            if (listEl.children.length === torrents.length) return;
-            
             if (loadingEl) loadingEl.textContent = '';
-            
+
             const seedersEl = card.querySelector('.seeders');
             if (seedersEl) seedersEl.style.display = 'none';
-            
+
             const resEl = card.querySelector('.resolution');
             if (resEl) resEl.style.display = 'none';
-            
+
+            const movieId = card.dataset.movieId;
+            const localReady = {};
+            if (movieId) {
+                const libMovie = libraryMovies.find(m => String(m.id) === String(movieId));
+                if (libMovie && libMovie.resolutions) {
+                    libMovie.resolutions.forEach(r => {
+                        if (r.progress >= 100 && r.is_playable) localReady[r.info_hash] = true;
+                    });
+                }
+            }
+
             listEl.innerHTML = '';
             let anyPlayable = false;
             const activeItem = activeCard ? activeCard.querySelector('.resolution-item') : null;
@@ -1503,8 +1528,8 @@
                 const aProg = parseInt(a.progress || 0, 10);
                 const bProg = parseInt(b.progress || 0, 10);
                 if (aProg !== bProg) return bProg - aProg;
-                const aSeed = parseInt(a.seeders || 0, 10);
-                const bSeed = parseInt(b.seeders || 0, 10);
+                const aSeed = typeof a.seeders === 'number' ? a.seeders : 0;
+                const bSeed = typeof b.seeders === 'number' ? b.seeders : 0;
                 if (aSeed !== bSeed) return bSeed - aSeed;
                 const aRes = resolutionRank(a.resolution);
                 const bRes = resolutionRank(b.resolution);
@@ -1527,7 +1552,9 @@
                 
                  const seeders = document.createElement('span');
                  seeders.className = 'res-seeders';
-                 seeders.textContent = `${torrent.seeders || 0} seeders`;
+                 const ih = torrent.info_hash || '';
+                 const s = (localReady[ih]) ? 'Ready' : torrent.seeders;
+                 seeders.textContent = typeof s === 'number' ? `${s} seeders` : (s || '');
                  
                   const progress = parseInt(torrent.progress || 0, 10);
                   const progressEl = document.createElement('span');
@@ -1685,6 +1712,26 @@
                                     fill.classList.toggle('completed', displayPercent >= 100);
                                 }
                                 if (text) text.textContent = displayPercent + '%';
+                            }
+                            break;
+                        }
+                    }
+                } else if (data.status === 'cancelled' && data.info_hash) {
+                    const cards = document.querySelectorAll('.movie-card');
+                    for (const c of cards) {
+                        const item = c.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`);
+                        if (item) {
+                            item.classList.remove('downloading');
+                            const progEl = item.querySelector('.res-progress');
+                            if (progEl) {
+                                progEl.textContent = 'Bad torrent';
+                                progEl.setAttribute('data-tooltip', data.cancel_reason || '');
+                                progEl.style.color = '#ff4444';
+                            }
+                            const fill = item.querySelector('.res-progress-fill');
+                            if (fill) {
+                                fill.style.width = '0%';
+                                fill.classList.remove('phase1', 'phase2', 'completed');
                             }
                             break;
                         }
@@ -1873,6 +1920,26 @@
                     clearInterval(downloadPollInterval);
                     downloadPollInterval = null;
                 }
+            } else if (data.status === 'cancelled') {
+                card.classList.remove('downloading', 'playable');
+                if (downloadPollInterval) {
+                    clearInterval(downloadPollInterval);
+                    downloadPollInterval = null;
+                }
+                const dlItems = card.querySelectorAll(`.resolution-item[data-info-hash="${expectedInfoHash}"]`);
+                dlItems.forEach(item => {
+                    const progEl = item.querySelector('.res-progress');
+                    if (progEl) {
+                        progEl.textContent = 'Bad torrent';
+                        progEl.setAttribute('data-tooltip', data.cancel_reason || '');
+                        progEl.style.color = '#ff4444';
+                    }
+                    const fill = item.querySelector('.res-progress-fill');
+                    if (fill) {
+                        fill.style.width = '0%';
+                        fill.classList.remove('phase1', 'phase2', 'completed');
+                    }
+                });
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
                 const isValid = data.is_valid;
