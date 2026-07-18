@@ -29,6 +29,29 @@ Frontend updated:
 - Single resolution delete uses hash-only route directly
 - Confirm dialogs no longer show filesystem path
 
+## "Ready" text now green
+
+The "Ready" text for fully downloaded movies now uses the same green (`#00ff00`) as the progress bar, via a `.res-seeders.ready` CSS class.
+
+## Single updateCardWithTorrent call per render
+
+`renderMovies` now makes only one `updateCardWithTorrent` call per card (with `movie.resolutions` data). Removed redundant calls that overwrote with `torrentCache` or `movie.seeders` single-item data. Sort order: progress descending, then seeders descending — before hover, downloaded resolutions sort by progress only; after hover, API results with real seeders data are merged in and sorted by seeders descending within the same progress level.
+
+## Fixed seeder sort for string values
+
+The seeder sort in `updateCardWithTorrent` used `typeof === 'number'` which always failed since the API returns seeders as strings. Changed to `parseInt()` so `"42"` correctly sorts as 42.
+
+## Resolution list updates in-place
+
+`updateCardWithTorrent` now updates existing resolution items in-place instead of destroying and recreating them. This prevents the hover highlight from flashing when the list is refreshed, since the DOM elements the user is hovering over are no longer destroyed and replaced. Items are matched by `info_hash`, updated in-place, or added/removed as needed.
+
+## Removed "local" label from torrent list
+
+Removed all "local" text from downloaded movie cards:
+- `movietime` — removed `"source": "local"` from locally injected torrent entries in `api_torrent()`
+- `templates/index.html` — removed the source-to-label concatenation (`src + ' ' + resolution`) in `updateCardWithTorrent()`
+- `templates/index.html` — changed `r.resolution || 'Local'` fallback to `r.resolution || ''` so empty resolutions no longer display "Local"
+
 ## Seeders display improved for downloaded movies
 
 - 100% downloaded + playable movies show "Ready" instead of fake seeders count

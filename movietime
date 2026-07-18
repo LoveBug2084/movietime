@@ -1768,6 +1768,7 @@ def api_torrent():
             t["is_playable"] = status.get("is_playable", False)
             t["last_updated"] = status.get("last_updated", 0)
             t["dl_status"] = status.get("status", "")
+            t["size"] = str(status.get("total_bytes") or status.get("downloaded_bytes") or t.get("size", 0))
         else:
             t["progress"] = 0
             t["is_playable"] = False
@@ -1802,7 +1803,6 @@ def api_torrent():
                 final_torrents.append({
                     "info_hash": info_hash,
                     "name": name,
-                    "source": "local",
                     "resolution": extract_resolution(name),
                     "seeders": 0,
                     "size": str(status.get("total_bytes") or status.get("downloaded_bytes") or 0),

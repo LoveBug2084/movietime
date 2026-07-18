@@ -309,7 +309,7 @@
             margin-bottom: 5px;
         }
         .movie-card .stars .star.filled {
-            color: #2ecc71;
+            color: #00ff00;
         }
         .movie-card .stars .star {
             color: #444;
@@ -321,7 +321,7 @@
         }
         .movie-card .resolution {
             font-size: 12px;
-            color: #2ecc71;
+            color: #00ff00;
             font-weight: bold;
             margin-top: 3px;
         }
@@ -405,7 +405,7 @@
              border-radius: 2px;
              width: 0%;
              transition: width 0.3s ease;
-             background: #2ecc71;
+             background: #00ff00;
          }
          .movie-card .resolution-item .res-progress-track .res-progress-fill.phase1 {
              background: #ff8c00;
@@ -440,12 +440,15 @@
             color: #888;
             font-size: 11px;
         }
+        .movie-card .resolution-item .res-seeders.ready {
+            color: #00ff00;
+        }
         .movie-card .torrent-status {
             font-size: 12px;
             margin-top: 5px;
         }
         .movie-card .torrent-status.searching {
-            color: #2ecc71;
+            color: #00ff00;
         }
         .movie-card .torrent-status.error {
             color: #e50914;
@@ -1255,13 +1258,12 @@
                     card.dataset.movieTitle = title;
                     card.dataset.movieYear = year || '';
 
-                    // Clear and refresh resolution list
+                    // Refresh resolution list in-place
                     const listEl = card.querySelector('.resolution-list');
-                    if (listEl) listEl.innerHTML = '';
 
                     if (movie.resolutions && movie.resolutions.length > 0) {
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
-                            resolution: r.resolution || 'Local',
+                            resolution: r.resolution || '',
                             size: r.size || '0',
                             seeders: (r.progress >= 100 && r.is_playable) ? 'Ready' : '',
                             info_hash: r.info_hash || '',
@@ -1286,22 +1288,11 @@
                     // Re-attach hover for non-downloaded
                     card.onmouseenter = null;
                     card.onmouseleave = null;
-                    if (movie.seeders) {
+                    if (movie.seeders || movie.poster) {
                         card.dataset.movieTitle = title;
                         const movieKey = getMovieUniqueKey(movie);
                         card.onmouseenter = () => setupTorrentHover(card, movie);
                         card.onmouseleave = () => clearTorrentHover(movieKey);
-                        if (torrentCache[movieKey]) {
-                            updateCardWithTorrent(card, torrentCache[movieKey]);
-                        }
-                    } else if (movie.poster) {
-                        card.dataset.movieTitle = title;
-                        const movieKey = getMovieUniqueKey(movie);
-                        card.onmouseenter = () => setupTorrentHover(card, movie);
-                        card.onmouseleave = () => clearTorrentHover(movieKey);
-                        if (torrentCache[movieKey]) {
-                            updateCardWithTorrent(card, torrentCache[movieKey]);
-                        }
                     }
 
                     // Re-attach click handler
@@ -1386,7 +1377,7 @@
                     
                     if (movie.resolutions && movie.resolutions.length > 0) {
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
-                            resolution: r.resolution || 'Local',
+                            resolution: r.resolution || '',
                             size: r.size || '0',
                             seeders: (r.progress >= 100 && r.is_playable) ? 'Ready' : '',
                             info_hash: r.info_hash || '',
@@ -1406,24 +1397,11 @@
                         };
                     }
 
-                    if (movie.seeders) {
-                         const torrents = [{
-                             resolution: movie.resolution || 'N/A',
-                             size: movie.size || '0',
-                             seeders: movie.seeders,
-                             info_hash: movie.info_hash || '',
-                             magnet: movie.magnet || '',
-                             name: movie.name || title
-                         }];
-                         updateCardWithTorrent(card, torrents);
-                     } else if (movie.poster) {
-                          card.dataset.movieTitle = title;
-                          const movieKey = getMovieUniqueKey(movie);
-                          card.onmouseenter = () => setupTorrentHover(card, movie);
-                          card.onmouseleave = () => clearTorrentHover(movieKey);
-                          if (torrentCache[movieKey]) {
-                              updateCardWithTorrent(card, torrentCache[movieKey]);
-                          }
+                    if (movie.seeders || movie.poster) {
+                         card.dataset.movieTitle = title;
+                         const movieKey = getMovieUniqueKey(movie);
+                         card.onmouseenter = () => setupTorrentHover(card, movie);
+                         card.onmouseleave = () => clearTorrentHover(movieKey);
                      }
 
                     
@@ -1514,7 +1492,6 @@
                 }
             }
 
-            listEl.innerHTML = '';
             let anyPlayable = false;
             const activeItem = activeCard ? activeCard.querySelector('.resolution-item') : null;
             const activeHash = activeItem ? activeItem.dataset.infoHash : null;
@@ -1528,83 +1505,167 @@
                 const aProg = parseInt(a.progress || 0, 10);
                 const bProg = parseInt(b.progress || 0, 10);
                 if (aProg !== bProg) return bProg - aProg;
-                const aSeed = typeof a.seeders === 'number' ? a.seeders : 0;
-                const bSeed = typeof b.seeders === 'number' ? b.seeders : 0;
+                const aSeed = parseInt(a.seeders) || 0;
+                const bSeed = parseInt(b.seeders) || 0;
                 if (aSeed !== bSeed) return bSeed - aSeed;
                 const aRes = resolutionRank(a.resolution);
                 const bRes = resolutionRank(b.resolution);
                 return bRes - aRes;
             });
+
+            const existingItems = Array.from(listEl.querySelectorAll('.resolution-item'));
+            const existingMap = {};
+            existingItems.forEach(el => { existingMap[el.dataset.infoHash] = el; });
+
+            const usedHashes = new Set();
             torrents.forEach(torrent => {
-                const item = document.createElement('div');
-                item.className = 'resolution-item';
-                item.dataset.infoHash = torrent.info_hash || '';
-                
-                const label = document.createElement('span');
-                label.className = 'res-label';
-                const src = torrent.source || '';
-                label.textContent = (src ? src + ' ' : '') + (torrent.resolution || 'N/A');
-                
-                const size = document.createElement('span');
-                size.className = 'res-size';
-                const sizeBytes = parseInt(torrent.size || 0, 10);
-                size.textContent = sizeBytes > 0 ? formatSize(sizeBytes) : '';
-                
-                 const seeders = document.createElement('span');
-                 seeders.className = 'res-seeders';
-                 const ih = torrent.info_hash || '';
-                 const s = (localReady[ih]) ? 'Ready' : torrent.seeders;
-                 seeders.textContent = typeof s === 'number' ? `${s} seeders` : (s || '');
-                 
-                  const progress = parseInt(torrent.progress || 0, 10);
-                  const progressEl = document.createElement('span');
-                  progressEl.className = 'res-progress';
-                  if (progress > 0) {
-                      progressEl.textContent = `${progress}%`;
-                  } else {
-                      progressEl.textContent = '';
-                  }
-                  
-                  const progressTrack = document.createElement('div');
-                  progressTrack.className = 'res-progress-track';
-                  const progressFill = document.createElement('div');
-                  progressFill.className = 'res-progress-fill' + (progress >= 100 ? ' completed' : '');
-                  progressFill.style.width = progress + '%';
-                  progressTrack.appendChild(progressFill);
-                  
-                  item.appendChild(label);
-                  item.appendChild(size);
-                  item.appendChild(seeders);
-                  item.appendChild(progressEl);
-                  item.appendChild(progressTrack);
+                const ih = torrent.info_hash || '';
+                const existing = existingMap[ih];
+                usedHashes.add(ih);
 
-                 
-                 if (torrent.is_playable) {
-                    anyPlayable = true;
-                    item.title = 'Ready to play';
-                }
+                if (existing) {
+                    existing.dataset.torrentName = torrent.name || '';
+                    existing.title = torrent.is_playable ? 'Ready to play' : '';
 
-                item.onclick = (e) => {
-                    e.stopPropagation();
-                    if (torrent.is_playable) {
-                        startPlayback(torrent.info_hash);
-                    } else {
-                        startTorrent(torrent, card);
+                    const label = existing.querySelector('.res-label');
+                    if (label) label.textContent = torrent.resolution || 'N/A';
+
+                    const size = existing.querySelector('.res-size');
+                    if (size) {
+                        const sizeBytes = parseInt(torrent.size || 0, 10);
+                        size.textContent = sizeBytes > 0 ? formatSize(sizeBytes) : '';
                     }
-                };
 
-                item.dataset.torrentName = torrent.name || '';
-                if (card.dataset.source === 'downloaded') {
-                    item.oncontextmenu = (e) => {
-                        e.preventDefault();
+                    const seeders = existing.querySelector('.res-seeders');
+                    if (seeders) {
+                        const s = (localReady[ih]) ? 'Ready' : torrent.seeders;
+                        seeders.textContent = typeof s === 'number' ? `${s} seeders` : (s || '');
+                        seeders.className = (s === 'Ready') ? 'res-seeders ready' : 'res-seeders';
+                    }
+
+                    const progress = parseInt(torrent.progress || 0, 10);
+                    const progressEl = existing.querySelector('.res-progress');
+                    if (progressEl) {
+                        progressEl.textContent = progress > 0 ? `${progress}%` : '';
+                    }
+                    const progressFill = existing.querySelector('.res-progress-fill');
+                    if (progressFill) {
+                        progressFill.className = 'res-progress-fill' + (progress >= 100 ? ' completed' : '');
+                        progressFill.style.width = progress + '%';
+                    }
+
+                    existing.onclick = (e) => {
                         e.stopPropagation();
-                        const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
-                        if (movie) showDeleteTorrentConfirm(card, item, movie);
+                        if (torrent.is_playable) {
+                            startPlayback(torrent.info_hash);
+                        } else {
+                            startTorrent(torrent, card);
+                        }
                     };
+                    if (card.dataset.source === 'downloaded') {
+                        existing.oncontextmenu = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
+                            if (movie) showDeleteTorrentConfirm(card, existing, movie);
+                        };
+                    }
+                } else {
+                    const item = document.createElement('div');
+                    item.className = 'resolution-item';
+                    item.dataset.infoHash = ih;
+
+                    const label = document.createElement('span');
+                    label.className = 'res-label';
+                    label.textContent = torrent.resolution || 'N/A';
+
+                    const size = document.createElement('span');
+                    size.className = 'res-size';
+                    const sizeBytes = parseInt(torrent.size || 0, 10);
+                    size.textContent = sizeBytes > 0 ? formatSize(sizeBytes) : '';
+
+                    const seeders = document.createElement('span');
+                    seeders.className = 'res-seeders';
+                    const s = (localReady[ih]) ? 'Ready' : torrent.seeders;
+                    seeders.textContent = typeof s === 'number' ? `${s} seeders` : (s || '');
+                    if (s === 'Ready') seeders.className = 'res-seeders ready';
+
+                    const progress = parseInt(torrent.progress || 0, 10);
+                    const progressEl = document.createElement('span');
+                    progressEl.className = 'res-progress';
+                    if (progress > 0) {
+                        progressEl.textContent = `${progress}%`;
+                    } else {
+                        progressEl.textContent = '';
+                    }
+
+                    const progressTrack = document.createElement('div');
+                    progressTrack.className = 'res-progress-track';
+                    const progressFill = document.createElement('div');
+                    progressFill.className = 'res-progress-fill' + (progress >= 100 ? ' completed' : '');
+                    progressFill.style.width = progress + '%';
+                    progressTrack.appendChild(progressFill);
+
+                    item.appendChild(label);
+                    item.appendChild(size);
+                    item.appendChild(seeders);
+                    item.appendChild(progressEl);
+                    item.appendChild(progressTrack);
+
+                    if (torrent.is_playable) {
+                        item.title = 'Ready to play';
+                    }
+
+                    item.onclick = (e) => {
+                        e.stopPropagation();
+                        if (torrent.is_playable) {
+                            startPlayback(torrent.info_hash);
+                        } else {
+                            startTorrent(torrent, card);
+                        }
+                    };
+
+                    item.dataset.torrentName = torrent.name || '';
+                    if (card.dataset.source === 'downloaded') {
+                        item.oncontextmenu = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
+                            if (movie) showDeleteTorrentConfirm(card, item, movie);
+                        };
+                    }
+
+                    listEl.appendChild(item);
                 }
-                
-                listEl.appendChild(item);
+
+                if (torrent.is_playable) anyPlayable = true;
             });
+
+            existingItems.forEach(el => {
+                if (!usedHashes.has(el.dataset.infoHash)) el.remove();
+            });
+
+            const allCurrentItems = Array.from(listEl.querySelectorAll('.resolution-item'));
+            const currentMap = {};
+            allCurrentItems.forEach(el => { currentMap[el.dataset.infoHash] = el; });
+
+            const sortedHashes = torrents.map(t => t.info_hash || '');
+            let prevEl = null;
+            sortedHashes.forEach(ih => {
+                const el = currentMap[ih];
+                if (!el) return;
+                if (prevEl) {
+                    if (el !== prevEl.nextSibling) {
+                        listEl.insertBefore(el, prevEl.nextSibling);
+                    }
+                } else {
+                    if (listEl.firstElementChild !== el) {
+                        listEl.prepend(el);
+                    }
+                }
+                prevEl = el;
+            });
+
             listEl.classList.add('visible');
             if (anyPlayable) {
                 card.classList.add('playable');
