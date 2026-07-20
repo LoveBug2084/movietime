@@ -372,6 +372,22 @@
         .movie-card .resolution-item:active {
             background: #333;
         }
+        .movie-card .resolution-item .res-label[data-source]::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 4px;
+            vertical-align: middle;
+            background: #999999;
+        }
+        .movie-card .resolution-item .res-label[data-source="apibay"]::before {
+            background: #ff0099;
+        }
+        .movie-card .resolution-item .res-label[data-source="magnetz"]::before {
+            background: #0000ff;
+        }
         .movie-card .resolution-item .res-label {
             grid-column: 1;
             grid-row: 1;
@@ -1272,6 +1288,7 @@
                             progress: r.progress || 0,
                             is_playable: r.is_playable || false,
                             dl_status: r.dl_status || '',
+                            source: r.source || '',
                             category: 'movies'
                         })));
                     }
@@ -1295,7 +1312,7 @@
                         card.onmouseleave = () => clearTorrentHover(movieKey);
                     }
 
-                    // Re-attach click handler
+                    // Re-attach click/play handler
                     card._playMovie = () => playMovie(movie, source, card);
                     card.onclick = async (e) => {
                         if (e.target.closest('.resolution-item')) return;
@@ -1386,6 +1403,7 @@
                             progress: r.progress || 0,
                             is_playable: r.is_playable || false,
                             dl_status: r.dl_status || '',
+                            source: r.source || '',
                             category: 'movies'
                         })));
                     }
@@ -1528,7 +1546,10 @@
                     existing.title = torrent.is_playable ? 'Ready to play' : '';
 
                     const label = existing.querySelector('.res-label');
-                    if (label) label.textContent = torrent.resolution || 'N/A';
+                    if (label) {
+                        label.textContent = torrent.resolution || 'N/A';
+                        label.dataset.source = torrent.source || '';
+                    }
 
                     const size = existing.querySelector('.res-size');
                     if (size) {
@@ -1578,6 +1599,7 @@
                     const label = document.createElement('span');
                     label.className = 'res-label';
                     label.textContent = torrent.resolution || 'N/A';
+                    label.dataset.source = torrent.source || '';
 
                     const size = document.createElement('span');
                     size.className = 'res-size';
@@ -1675,6 +1697,32 @@
 
         }
         
+        function mergeTorrents(existing, incoming) {
+            const map = {};
+            for (const t of existing) map[t.info_hash] = t;
+            for (const t of incoming) {
+                const ih = t.info_hash;
+                if (!ih) continue;
+                if (!map[ih]) {
+                    map[ih] = t;
+                } else {
+                    const cur = parseInt(t.seeders) || 0;
+                    const ex = parseInt(map[ih].seeders) || 0;
+                    if (cur > ex) map[ih] = t;
+                }
+            }
+            const merged = Object.values(map);
+            merged.sort((a, b) => {
+                const aProg = parseInt(a.progress || 0, 10);
+                const bProg = parseInt(b.progress || 0, 10);
+                if (aProg !== bProg) return bProg - aProg;
+                const aSeed = parseInt(a.seeders) || 0;
+                const bSeed = parseInt(b.seeders) || 0;
+                return bSeed - aSeed;
+            });
+            return merged;
+        }
+
         function setupTorrentHover(card, movie) {
             const title = movie.title || movie.name || 'Unknown';
             const year = movie.year || '';
@@ -1702,37 +1750,41 @@
                 
                 pendingFetches[key] = true;
                 const tmdbId = movie.id || '';
-                fetch(`/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}&tmdb_id=${encodeURIComponent(tmdbId)}`)
-                    .then(resp => {
-                        if (!resp.ok) {
-                            if (loadingEl) {
-                                loadingEl.textContent = 'No torrents';
-                                loadingEl.className = 'torrent-status error';
-                            }
-                            pendingFetches[key] = false;
-                            return;
-                        }
-                        return resp.json();
-                    })
-                    .then(data => {
-                        pendingFetches[key] = false;
-                        if (data && data.length > 0) {
-                            torrentCache[key] = data;
-                            updateCardWithTorrent(card, data);
-                        } else {
-                            if (loadingEl) {
-                                loadingEl.textContent = 'No torrents';
-                                loadingEl.className = 'torrent-status error';
-                            }
-                        }
-                    })
-                    .catch(() => {
-                        pendingFetches[key] = false;
+                const baseUrl = `/api/torrent?q=${encodeURIComponent(title)}&category=${currentCategory}&year=${encodeURIComponent(year || '')}&tmdb_id=${encodeURIComponent(tmdbId)}`;
+                
+                let sourcesDone = 0;
+                const totalSources = 2;
+                let gotAnyResults = false;
+
+                function onSourceDone(sourceName, data) {
+                    sourcesDone++;
+                    if (data && data.length > 0) {
+                        if (!torrentCache[key]) torrentCache[key] = [];
+                        torrentCache[key] = mergeTorrents(torrentCache[key], data);
+                        gotAnyResults = true;
+                        updateCardWithTorrent(card, torrentCache[key]);
+                    } else if (sourcesDone >= totalSources && !gotAnyResults) {
                         if (loadingEl) {
                             loadingEl.textContent = 'No torrents';
                             loadingEl.className = 'torrent-status error';
                         }
-                    });
+                    } else if (sourcesDone >= totalSources && gotAnyResults) {
+                        updateCardWithTorrent(card, torrentCache[key]);
+                    }
+                    if (sourcesDone >= totalSources) {
+                        pendingFetches[key] = false;
+                    }
+                }
+
+                fetch(`${baseUrl}&source=apibay`)
+                    .then(resp => resp.ok ? resp.json() : [])
+                    .then(data => onSourceDone('apibay', data))
+                    .catch(() => onSourceDone('apibay', []));
+
+                fetch(`${baseUrl}&source=magnetz`)
+                    .then(resp => resp.ok ? resp.json() : [])
+                    .then(data => onSourceDone('magnetz', data))
+                    .catch(() => onSourceDone('magnetz', []));
                 }, 300);
         }
         
@@ -1850,7 +1902,7 @@
                 const resp = await fetch('/api/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ magnet, info_hash, name, tmdb_id: tmdbId })
+                    body: JSON.stringify({ magnet, info_hash, name, tmdb_id: tmdbId, source: torrent.source || '' })
                 });
 
                 if (!resp.ok) {

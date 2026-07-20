@@ -12,6 +12,15 @@ def load_env_file():
     return None
 
 TMDB_API_KEY = load_env_file()
+
+def load_user_agent():
+    ua_path = os.path.join(SCRIPT_DIR, ".user-agent")
+    if os.path.exists(ua_path):
+        with open(ua_path) as f:
+            return f.read().strip()
+    return ""
+
+USER_AGENT = load_user_agent()
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-gpu-compositing"
 
@@ -620,7 +629,8 @@ def search_apibay(query, category="all", year=""):
 
     try:
         url = f"https://apibay.org/q.php?q={query.replace(' ', '+')}"
-        resp = requests.get(url, timeout=10)
+        headers = {"User-Agent": USER_AGENT} if USER_AGENT else {}
+        resp = requests.get(url, headers=headers, timeout=10)
         results = resp.json()
         
         if not results or (isinstance(results, list) and len(results) == 0):
@@ -684,7 +694,8 @@ def search_magnetz(query, category="all", year=""):
             search_query = f"{query} {year}"
             
         url = f"https://magnetz.eu/api/magnets/search?query={search_query.replace(' ', '+')}"
-        resp = requests.get(url, timeout=10)
+        headers = {"User-Agent": USER_AGENT} if USER_AGENT else {}
+        resp = requests.get(url, headers=headers, timeout=10)
         data = resp.json()
         
         # API returns {"data": [...]}
@@ -950,6 +961,7 @@ current_download = {
     "magnet": None,
     "video_file": None,
     "tmdb_id": None,
+    "source": "",
 }
 last_cancel_reason = {"reason": None, "info_hash": None, "timestamp": 0}
 
@@ -1008,6 +1020,7 @@ def validate_torrent_contents(handle, info_hash, tmdb_id, name):
         last_cancel_reason["info_hash"] = info_hash
         last_cancel_reason["timestamp"] = time.time()
 
+        existing_status = get_torrent_status(tmdb_id, info_hash) or {}
         save_torrent_status(tmdb_id, info_hash, {
             "progress": 0,
             "downloaded_bytes": 0,
@@ -1019,6 +1032,7 @@ def validate_torrent_contents(handle, info_hash, tmdb_id, name):
             "name": name,
             "tmdb_id": tmdb_id,
             "cancel_reason": reason,
+            "source": existing_status.get("source", current_download.get("source", "")),
         })
 
         tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
@@ -1259,7 +1273,8 @@ def update_active_download_status_loop():
                     "last_updated": time.time(),
                     "magnet": current_download.get("magnet"),
                     "name": current_download.get("name"),
-                    "tmdb_id": tmdb_id
+                    "tmdb_id": tmdb_id,
+                    "source": current_download.get("source", ""),
                 })
                 last_progress[info_hash] = progress
 
@@ -1695,6 +1710,7 @@ def api_downloads_list():
                 "name": status.get("name", ""),
                 "dl_status": status.get("status", ""),
                 "last_updated": last_updated,
+                "source": status.get("source", ""),
             }
 
             if tmdb_id_int is not None:
@@ -1718,21 +1734,26 @@ def api_downloads_list():
 
 @app.route("/api/torrent")
 def api_torrent():
-    """Get torrent info for a movie (searches magnetz)"""
+    """Get torrent info for a movie (searches apibay and/or magnetz)"""
     query = request.args.get("q", "").strip()
     category = request.args.get("category", "all").strip()
     year = request.args.get("year", "").strip()
     tmdb_id_param = request.args.get("tmdb_id", "").strip()
+    source = request.args.get("source", "").strip().lower()
     if not query:
         return jsonify({"error": "No query"}), 400
     
-    futures = {
-        executor.submit(search_apibay, query, category, year): "apibay",
-        # executor.submit(search_magnetz, query, category, year): "magnetz"
-    }
+    do_apibay = source in ("", "apibay")
+    do_magnetz = source in ("", "magnetz")
+    
+    futures = {}
+    if do_apibay:
+        futures[executor.submit(search_apibay, query, category, year)] = "apibay"
+    if do_magnetz:
+        futures[executor.submit(search_magnetz, query, category, year)] = "magnetz"
     
     all_torrents = []
-    done, _ = wait(futures, timeout=3)
+    done, _ = wait(futures, timeout=10)
     for future in done:
         try:
             all_torrents.extend(future.result())
@@ -1766,6 +1787,9 @@ def api_torrent():
             t["last_updated"] = status.get("last_updated", 0)
             t["dl_status"] = status.get("status", "")
             t["size"] = str(status.get("total_bytes") or status.get("downloaded_bytes") or t.get("size", 0))
+            if not status.get("source") and t.get("source"):
+                status["source"] = t["source"]
+                save_torrent_status(tmdb_id_int, ih, status)
         else:
             t["progress"] = 0
             t["is_playable"] = False
@@ -1807,6 +1831,7 @@ def api_torrent():
                     "is_playable": status.get("is_playable", False),
                     "last_updated": status.get("last_updated", 0),
                     "dl_status": status.get("status", ""),
+                    "source": status.get("source", ""),
                 })
 
     # Sort by progress descending, then seeders descending
@@ -1822,6 +1847,7 @@ def api_start():
     info_hash = data.get("info_hash")
     name = data.get("name", "")
     tmdb_id = data.get("tmdb_id")
+    source = data.get("source", "")
 
     if not magnet:
         return jsonify({"error": "No magnet link"}), 400
@@ -1833,6 +1859,7 @@ def api_start():
 
     with download_lock:
         current_download["tmdb_id"] = tmdb_id_int
+        current_download["source"] = source
 
     threading.Thread(target=download_torrent, args=(magnet, info_hash, name, tmdb_id_int)).start()
 
@@ -1845,7 +1872,8 @@ def api_start():
         "last_updated": time.time(),
         "magnet": magnet,
         "name": name,
-        "tmdb_id": tmdb_id_int
+        "tmdb_id": tmdb_id_int,
+        "source": source
     })
 
     return jsonify({"status": "downloading", "name": name})
