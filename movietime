@@ -26,7 +26,7 @@ import secrets
 import requests
 import shutil
 from flask import Flask, render_template, jsonify, request, make_response
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 
 # PyQt5 imports for desktop app
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
@@ -619,14 +619,8 @@ def search_apibay(query, category="all", year=""):
             return results
 
     try:
-        # Append year to query for better API results if year is specified
-        search_query = query
-        if year and year.isdigit() and len(year) == 4:
-            search_query = f"{query} {year}"
-            
-        url = f"https://apibay.org/q.php?q={search_query.replace(' ', '+')}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, timeout=10, headers=headers)
+        url = f"https://apibay.org/q.php?q={query.replace(' ', '+')}"
+        resp = requests.get(url, timeout=10)
         results = resp.json()
         
         if not results or (isinstance(results, list) and len(results) == 0):
@@ -689,9 +683,8 @@ def search_magnetz(query, category="all", year=""):
         if year and year.isdigit() and len(year) == 4:
             search_query = f"{query} {year}"
             
-        url = f"https://magnetz.eu/api/magnets/search?query={search_query}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, timeout=10, headers=headers)
+        url = f"https://magnetz.eu/api/magnets/search?query={search_query.replace(' ', '+')}"
+        resp = requests.get(url, timeout=10)
         data = resp.json()
         
         # API returns {"data": [...]}
@@ -1735,12 +1728,16 @@ def api_torrent():
     
     futures = {
         executor.submit(search_apibay, query, category, year): "apibay",
-        executor.submit(search_magnetz, query, category, year): "magnetz"
+        # executor.submit(search_magnetz, query, category, year): "magnetz"
     }
     
     all_torrents = []
-    for future in as_completed(futures):
-        all_torrents.extend(future.result())
+    done, _ = wait(futures, timeout=3)
+    for future in done:
+        try:
+            all_torrents.extend(future.result())
+        except Exception as e:
+            print(f"Error fetching torrents: {e}")
         
     # Deduplicate by info_hash and keep highest seeders
     unique_torrents = {}
@@ -1812,8 +1809,8 @@ def api_torrent():
                     "dl_status": status.get("status", ""),
                 })
 
-    # Sort by progress descending (most downloaded first)
-    final_torrents.sort(key=lambda t: t.get("progress") or 0, reverse=True)
+    # Sort by progress descending, then seeders descending
+    final_torrents.sort(key=lambda t: (t.get("progress") or 0, int(t.get("seeders") or 0)), reverse=True)
     
     return jsonify(final_torrents)
 
