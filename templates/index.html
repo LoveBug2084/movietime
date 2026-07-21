@@ -1021,9 +1021,12 @@
         function enrichLibraryMovies() {
             if (!displayMovies || displayMovies.length === 0) return;
             libraryMovies = libraryMovies.map(lm => {
-                const cached = displayMovies.find(m => m.id === lm.id);
+                const cached = displayMovies.find(m => String(m.id) === String(lm.id));
                 if (cached) {
                     return { ...cached, resolutions: lm.resolutions };
+                }
+                if (lm.id && !String(lm.id).match(/^\d+$/)) {
+                    return { ...lm, title: lm.name || 'Unknown' };
                 }
                 return lm;
             });
@@ -1391,6 +1394,7 @@
                         card.dataset.movieId = movie.id;
                     }
                     card.dataset.source = source;
+                    card.dataset.movieTitle = title;
                     
                     if (movie.resolutions && movie.resolutions.length > 0) {
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
@@ -1416,7 +1420,6 @@
                     }
 
                     if (movie.seeders || movie.poster) {
-                         card.dataset.movieTitle = title;
                          const movieKey = getMovieUniqueKey(movie);
                          card.onmouseenter = () => setupTorrentHover(card, movie);
                          card.onmouseleave = () => clearTorrentHover(movieKey);
@@ -1511,24 +1514,37 @@
             }
 
             let anyPlayable = false;
-            const activeItem = activeCard ? activeCard.querySelector('.resolution-item') : null;
-            const activeHash = activeItem ? activeItem.dataset.infoHash : null;
+
+            const movieTitle = (card.dataset.movieTitle || '').toLowerCase();
+            const movieYear = (card.dataset.movieYear || '').trim();
+            const titleWords = movieTitle.split(/\s+/).filter(w => w.length > 0);
+
+            function matchTorrent(t) {
+                const name = (t.name || '').toLowerCase();
+                const hasAllWords = titleWords.length > 0 && titleWords.every(w => name.includes(w));
+                if (!hasAllWords) return 0;
+                const hasYear = movieYear && name.includes(movieYear);
+                if (movieYear && /\d{4}/.test(name) && !hasYear) return 0;
+                return hasYear ? 2 : 1;
+            }
+
+            torrents = torrents.filter(t => {
+                const seeders = parseInt(t.seeders) || 0;
+                const hasDownload = t.dl_status || parseInt(t.progress || 0, 10) > 0 || t.is_playable;
+                return (seeders > 0 || hasDownload) && matchTorrent(t) > 0;
+            });
+
             torrents.sort((a, b) => {
-                const aActive = a.info_hash && activeHash && a.info_hash === activeHash ? 1 : 0;
-                const bActive = b.info_hash && activeHash && b.info_hash === activeHash ? 1 : 0;
-                if (aActive !== bActive) return bActive - aActive;
-                const aPlayable = a.is_playable ? 1 : 0;
-                const bPlayable = b.is_playable ? 1 : 0;
-                if (aPlayable !== bPlayable) return bPlayable - aPlayable;
-                const aProg = parseInt(a.progress || 0, 10);
-                const bProg = parseInt(b.progress || 0, 10);
-                if (aProg !== bProg) return bProg - aProg;
+                const aHasDownload = a.dl_status || parseInt(a.progress || 0, 10) > 0 || a.is_playable ? 1 : 0;
+                const bHasDownload = b.dl_status || parseInt(b.progress || 0, 10) > 0 || b.is_playable ? 1 : 0;
+                if (aHasDownload !== bHasDownload) return bHasDownload - aHasDownload;
+                const aTier = matchTorrent(a);
+                const bTier = matchTorrent(b);
+                if (aTier !== bTier) return bTier - aTier;
+                if (aHasDownload) return parseInt(b.progress || 0, 10) - parseInt(a.progress || 0, 10);
                 const aSeed = parseInt(a.seeders) || 0;
                 const bSeed = parseInt(b.seeders) || 0;
-                if (aSeed !== bSeed) return bSeed - aSeed;
-                const aRes = resolutionRank(a.resolution);
-                const bRes = resolutionRank(b.resolution);
-                return bRes - aRes;
+                return bSeed - aSeed;
             });
 
             const existingItems = Array.from(listEl.querySelectorAll('.resolution-item'));
@@ -1543,7 +1559,7 @@
 
                 if (existing) {
                     existing.dataset.torrentName = torrent.name || '';
-                    existing.title = torrent.is_playable ? 'Ready to play' : '';
+                    existing.title = torrent.name || '';
 
                     const label = existing.querySelector('.res-label');
                     if (label) {
@@ -1587,7 +1603,7 @@
                         existing.oncontextmenu = (e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
+                            const movie = libraryMovies.find(m => String(m.id) === String(card.dataset.movieId));
                             if (movie) showDeleteTorrentConfirm(card, existing, movie);
                         };
                     }
@@ -1635,7 +1651,7 @@
                     item.appendChild(progressTrack);
 
                     if (torrent.is_playable) {
-                        item.title = 'Ready to play';
+                        item.title = torrent.name || '';
                     }
 
                     item.onclick = (e) => {
@@ -1652,7 +1668,7 @@
                         item.oncontextmenu = (e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            const movie = libraryMovies.find(m => m.id === parseInt(card.dataset.movieId));
+                            const movie = libraryMovies.find(m => String(m.id) === String(card.dataset.movieId));
                             if (movie) showDeleteTorrentConfirm(card, item, movie);
                         };
                     }
@@ -2109,8 +2125,8 @@
                 startPlayback(activeItem.dataset.infoHash);
                 return;
             }
-            const movieId = parseInt(card.dataset.movieId);
-            const entry = libraryMovies.find(m => m.id === movieId);
+            const movieId = String(card.dataset.movieId);
+            const entry = libraryMovies.find(m => String(m.id) === movieId);
             if (entry && entry.resolutions && entry.resolutions.length > 0) {
                 const complete = entry.resolutions.filter(r => r.is_playable && parseInt(r.progress) >= 100);
                 let best;
@@ -2349,10 +2365,19 @@
                 .then(data => {
                     if (requestId !== currentSearchRequestId) return;
                     
-                     const externalResults = data.combined || data.results || [];
+                     const externalResults = (data.combined || data.results || []).filter(ext => {
+                         if (ext.search_source !== 'external') return true;
+                         return parseInt(ext.seeders) > 0;
+                     });
                      
-                     // Combine local and external results without deduplication
-                     const finalResults = [...filteredLocal, ...externalResults];
+                     // Filter external results that already exist as TMDb cards
+                     const tmdbTitles = filteredLocal.map(m => (m.title || '').toLowerCase().split(/\s+/));
+                     const dedupedExternal = externalResults.filter(ext => {
+                         if (ext.search_source !== 'external') return true;
+                         const name = (ext.title || '').toLowerCase();
+                         return !tmdbTitles.some(words => words.length > 0 && words.every(w => name.includes(w)));
+                     });
+                     const finalResults = [...filteredLocal, ...dedupedExternal];
                      
                      // Update cache for pagination
 

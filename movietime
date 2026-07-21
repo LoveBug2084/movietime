@@ -34,6 +34,7 @@ import json
 import secrets
 import requests
 import shutil
+import zlib
 from flask import Flask, render_template, jsonify, request, make_response
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 
@@ -400,7 +401,7 @@ def get_popular_movies(page=1):
         movies = []
         for m in data.get("results", []):
             movies.append({
-                "id": m.get("id"),
+                "id": str(m.get("id")),
                 "title": m.get("title"),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
@@ -421,7 +422,7 @@ def fetch_movie_page(page):
         movies = []
         for m in data.get("results", []):
             movies.append({
-                "id": m.get("id"),
+                "id": str(m.get("id")),
                 "title": m.get("title"),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
@@ -443,7 +444,7 @@ def fetch_movie_by_genre(genre_id, page):
         movies = []
         for m in data.get("results", []):
             movies.append({
-                "id": m.get("id"),
+                "id": str(m.get("id")),
                 "title": m.get("title"),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
@@ -497,7 +498,7 @@ def search_year_parallel(year):
         year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
         if year_val == year:
             all_movies.append({
-                "id": m.get("id"),
+                "id": str(m.get("id")),
                 "title": m.get("title"),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
@@ -512,7 +513,7 @@ def search_year_parallel(year):
                 year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
                 if year_val == year:
                     all_movies.append({
-                        "id": m.get("id"),
+                        "id": str(m.get("id")),
                         "title": m.get("title"),
                         "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                         "overview": m.get("overview", ""),
@@ -664,10 +665,11 @@ def search_apibay(query, category="all", year=""):
                 })
         
         # Sort by score descending, then by seeders
-        torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+        # torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
         
-        # Only return torrents with a positive score
-        results = [t for t in torrents if t["score"] > 0][:10]
+        # Backend filter commented out for testing — frontend handles all sorting/filtering
+        # results = [t for t in torrents if t["score"] > 0][:10]
+        results = torrents
         TORRENT_CACHE["apibay"][cache_key] = (now, results)
         return results
     except Exception as e:
@@ -731,10 +733,11 @@ def search_magnetz(query, category="all", year=""):
             })
             
         # Sort by score descending, then by seeders
-        torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
+        # torrents.sort(key=lambda t: (t["score"], int(t["seeders"]) if t["seeders"].isdigit() else 0), reverse=True)
         
-        # Only return torrents with a positive score
-        results = [t for t in torrents if t["score"] > 0][:10]
+        # Backend filter commented out for testing — frontend handles all sorting/filtering
+        # results = [t for t in torrents if t["score"] > 0][:10]
+        results = torrents
         TORRENT_CACHE["magnetz"][cache_key] = (now, results)
         return results
     except Exception as e:
@@ -780,7 +783,7 @@ def start_search_background(search_id, query, sort, category, year=""):
     for m in first_page:
         year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
         movie = {
-            "id": m.get("id"),
+            "id": str(m.get("id")),
             "title": m.get("title"),
             "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
             "overview": m.get("overview", ""),
@@ -818,7 +821,7 @@ def start_search_background(search_id, query, sort, category, year=""):
                 for m in results:
                     year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
                     movie = {
-                        "id": m.get("id"),
+                        "id": str(m.get("id")),
                         "title": m.get("title"),
                         "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                         "overview": m.get("overview", ""),
@@ -901,6 +904,7 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
         m["title"] = title
         m["year"] = ""
         m["rating"] = None
+        m["id"] = f"_{zlib.crc32(title.encode()) & 0xFFFFFFFF:08x}"
         combined.append(m)
 
     if sort == "title":
@@ -1689,11 +1693,7 @@ def api_downloads_list():
             except:
                 continue
 
-            tmdb_id = status.get("tmdb_id") or tmdb_str
-            try:
-                tmdb_id_int = int(tmdb_id)
-            except (ValueError, TypeError):
-                tmdb_id_int = None
+            tmdb_id = str(status.get("tmdb_id")) if status.get("tmdb_id") is not None else tmdb_str
 
             resolution = status.get("resolution", extract_resolution(status.get("name", "")))
             size = status.get("total_bytes", 0) or status.get("size", 0)
@@ -1713,14 +1713,13 @@ def api_downloads_list():
                 "source": status.get("source", ""),
             }
 
-            if tmdb_id_int is not None:
-                key = tmdb_id_int
+            if tmdb_id:
+                key = tmdb_id
             else:
                 key = info_hash
             if key not in movies:
-                movie_entry = {"id": tmdb_id_int, "resolutions": [], "last_updated": last_updated}
-                if tmdb_id_int is None:
-                    movie_entry["id"] = info_hash
+                movie_entry = {"id": tmdb_id or info_hash, "resolutions": [], "last_updated": last_updated}
+                if not tmdb_id or tmdb_id == "_unknown":
                     movie_entry["title"] = status.get("name", "Unknown")
                 movies[key] = movie_entry
 
@@ -1776,11 +1775,8 @@ def api_torrent():
     # Attach download status from disk — check download/<tmdb_id>/<info_hash>/
     for t in final_torrents:
         ih = t["info_hash"]
-        try:
-            tmdb_id_int = int(tmdb_id_param) if tmdb_id_param else None
-        except (ValueError, TypeError):
-            tmdb_id_int = None
-        status = get_torrent_status(tmdb_id_int, ih) if tmdb_id_int else find_torrent_status(ih)
+        tmdb_id = tmdb_id_param or None
+        status = get_torrent_status(tmdb_id, ih) if tmdb_id else find_torrent_status(ih)
         if status:
             t["progress"] = status.get("progress", 0)
             t["is_playable"] = status.get("is_playable", False)
@@ -1789,7 +1785,7 @@ def api_torrent():
             t["size"] = str(status.get("total_bytes") or status.get("downloaded_bytes") or t.get("size", 0))
             if not status.get("source") and t.get("source"):
                 status["source"] = t["source"]
-                save_torrent_status(tmdb_id_int, ih, status)
+                save_torrent_status(tmdb_id, ih, status)
         else:
             t["progress"] = 0
             t["is_playable"] = False
@@ -1798,13 +1794,9 @@ def api_torrent():
 
     # Inject local downloads not in external results
     existing_hashes = {t["info_hash"] for t in final_torrents if t.get("info_hash")}
-    try:
-        tmdb_id_int = int(tmdb_id_param) if tmdb_id_param else None
-    except (ValueError, TypeError):
-        tmdb_id_int = None
-    if tmdb_id_int is not None:
-        tmdb_str = str(tmdb_id_int)
-        tmdb_dir = os.path.join(DOWNLOAD_DIR, tmdb_str)
+    tmdb_id = tmdb_id_param or None
+    if tmdb_id:
+        tmdb_dir = os.path.join(DOWNLOAD_DIR, tmdb_id)
         if os.path.isdir(tmdb_dir):
             for info_hash in os.listdir(tmdb_dir):
                 if info_hash in existing_hashes:
@@ -1846,24 +1838,19 @@ def api_start():
     magnet = data.get("magnet")
     info_hash = data.get("info_hash")
     name = data.get("name", "")
-    tmdb_id = data.get("tmdb_id")
+    tmdb_id = data.get("tmdb_id") or None
     source = data.get("source", "")
 
     if not magnet:
         return jsonify({"error": "No magnet link"}), 400
 
-    try:
-        tmdb_id_int = int(tmdb_id) if tmdb_id else None
-    except (ValueError, TypeError):
-        tmdb_id_int = None
-
     with download_lock:
-        current_download["tmdb_id"] = tmdb_id_int
+        current_download["tmdb_id"] = tmdb_id
         current_download["source"] = source
 
-    threading.Thread(target=download_torrent, args=(magnet, info_hash, name, tmdb_id_int)).start()
+    threading.Thread(target=download_torrent, args=(magnet, info_hash, name, tmdb_id)).start()
 
-    save_torrent_status(tmdb_id_int, info_hash, {
+    save_torrent_status(tmdb_id, info_hash, {
         "progress": 0,
         "downloaded_bytes": 0,
         "total_bytes": 0,
@@ -1872,7 +1859,7 @@ def api_start():
         "last_updated": time.time(),
         "magnet": magnet,
         "name": name,
-        "tmdb_id": tmdb_id_int,
+        "tmdb_id": tmdb_id,
         "source": source
     })
 
@@ -2089,23 +2076,18 @@ def api_play():
     """Start playing a specific download with mpv, resuming download if necessary"""
     data = request.json or {}
     info_hash = data.get("info_hash")
-    tmdb_id = data.get("tmdb_id")
+    tmdb_id = data.get("tmdb_id") or None
  
     if not info_hash:
         return jsonify({"error": "info_hash required"}), 400
- 
-    try:
-        tmdb_id_int = int(tmdb_id) if tmdb_id else None
-    except (ValueError, TypeError):
-        tmdb_id_int = None
  
     # Check if this torrent is currently active in the session
     with download_lock:
         is_active = current_download.get("info_hash") == info_hash
  
     if not is_active:
-        video_file = find_video_file(info_hash, tmdb_id_int)
-        status = get_torrent_status(tmdb_id_int, info_hash)
+        video_file = find_video_file(info_hash, tmdb_id)
+        status = get_torrent_status(tmdb_id, info_hash)
 
         # Resume incomplete downloads in background even if the file is playable
         resume_download = False
@@ -2125,20 +2107,20 @@ def api_play():
             if resume_download:
                 threading.Thread(
                     target=download_torrent,
-                    args=(status["magnet"], info_hash, status["name"], tmdb_id_int),
+                    args=(status["magnet"], info_hash, status["name"], tmdb_id),
                     daemon=True
                 ).start()
         else:
             if resume_download:
                 threading.Thread(
                     target=download_torrent, 
-                    args=(status["magnet"], info_hash, status["name"], tmdb_id_int), 
+                    args=(status["magnet"], info_hash, status["name"], tmdb_id), 
                     daemon=True
                 ).start()
                 time.sleep(0.2)
                 video_file = None
  
-    video_file = find_video_file(info_hash, tmdb_id_int)
+    video_file = find_video_file(info_hash, tmdb_id)
  
     if not video_file or not os.path.exists(video_file):
         return jsonify({"error": "No video file"}), 404
