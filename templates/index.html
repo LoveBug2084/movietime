@@ -96,34 +96,35 @@
             color: #fff;
             white-space: nowrap;
         }
-        .loading-bg {
+        .loading-bar {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 999;
-            display: none;
-        }
-        .loading-bg.visible {
-            display: block;
-        }
-        .loading-overlay {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #e50914;
-            border: none;
-            color: #fff;
-            padding: 10px 25px;
-            border-radius: 5px;
-            font-size: 18px;
-            font-weight: bold;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
             z-index: 1000;
-            display: none;
+            background: rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.2s;
             pointer-events: none;
         }
-        .loading-overlay.visible {
-            display: inline-flex;
+        .loading-bar.visible {
+            opacity: 1;
+        }
+        .loading-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 30%;
+            height: 100%;
+            background: #e50914;
+            border-radius: 0 2px 2px 0;
+            animation: loading-slide 1.2s ease-in-out infinite;
+        }
+        @keyframes loading-slide {
+            0% { left: -30%; }
+            100% { left: 100%; }
         }
         .modal-overlay {
             position: fixed;
@@ -573,22 +574,30 @@
         }
         .notification {
             position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #e50914;
-            color: #fff;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: bold;
+            top: 16px;
+            right: 16px;
+            background: rgba(30, 30, 30, 0.92);
+            color: #ccc;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: normal;
             z-index: 400;
             opacity: 0;
-            transition: opacity 0.3s;
+            transform: translateX(20px);
+            transition: opacity 0.25s, transform 0.25s;
             pointer-events: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+            max-width: 300px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
         }
         .notification.visible {
             opacity: 1;
+            transform: translateX(0);
+        }
+        .notification.error {
+            color: #ff6b6b;
         }
         </style>
 </head>
@@ -786,8 +795,7 @@
         <div class="grid" id="grid"></div>
     </div>
     
-    <div class="loading-bg" id="loading-bg"></div>
-    <div class="loading-overlay" id="loading-overlay">Loading...</div>
+    <div class="loading-bar" id="loading-bar"></div>
     
     <div class="modal-overlay" id="modal-overlay">
         <div class="modal-box">
@@ -827,12 +835,10 @@
         let cardMap = new Map(); // movie_id → card DOM element
         
         function showLoading() {
-            document.getElementById('loading-bg').classList.add('visible');
-            document.getElementById('loading-overlay').classList.add('visible');
+            document.getElementById('loading-bar').classList.add('visible');
         }
         function hideLoading() {
-            document.getElementById('loading-overlay').classList.remove('visible');
-            document.getElementById('loading-bg').classList.remove('visible');
+            document.getElementById('loading-bar').classList.remove('visible');
         }
 
         function showDeleteConfirm(card, movie) {
@@ -914,9 +920,8 @@
                             if (progressFill) progressFill.style.width = '0%';
                             if (progressEl) progressEl.textContent = '';
                             const movieEntry = libraryMovies.find(m => m.id === movie.id);
-                            if (movieEntry) {
-                                const res = movieEntry.resolutions.find(r => r.info_hash === infoHash);
-                                if (res) { res.progress = 0; res.is_playable = false; res.dl_status = ''; }
+                            if (movieEntry && movieEntry.resolutions) {
+                                movieEntry.resolutions = movieEntry.resolutions.filter(r => r.info_hash !== infoHash);
                             }
                             displayMovies.forEach(dm => {
                                 if (dm.id === movie.id && dm.resolutions) {
@@ -982,8 +987,9 @@
 
         function showNotification(msg, isError = false) {
             notification.textContent = msg;
+            notification.classList.toggle('error', isError);
             notification.classList.add('visible');
-            setTimeout(() => notification.classList.remove('visible'), 10000);
+            setTimeout(() => notification.classList.remove('visible'), 3000);
         }
         
         function handleGenreChange() {
@@ -1517,7 +1523,7 @@
 
             const movieTitle = (card.dataset.movieTitle || '').toLowerCase();
             const movieYear = (card.dataset.movieYear || '').trim();
-            const titleWords = movieTitle.split(/\s+/).filter(w => w.length > 0);
+            const titleWords = movieTitle.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
 
             function matchTorrent(t) {
                 const name = (t.name || '').toLowerCase();
@@ -1533,6 +1539,16 @@
                 const hasDownload = t.dl_status || parseInt(t.progress || 0, 10) > 0 || t.is_playable;
                 return (seeders > 0 || hasDownload) && matchTorrent(t) > 0;
             });
+
+            if (torrents.length === 0) {
+                if (loadingEl) {
+                    loadingEl.textContent = 'No torrents';
+                    loadingEl.className = 'torrent-status error';
+                }
+                listEl.innerHTML = '';
+                listEl.classList.remove('visible');
+                return;
+            }
 
             torrents.sort((a, b) => {
                 const aHasDownload = a.dl_status || parseInt(a.progress || 0, 10) > 0 || a.is_playable ? 1 : 0;
@@ -2197,7 +2213,9 @@
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
-                if (data.status === 'ready' || data.status === 'downloading') {
+                const canPlay = data.status === 'ready' ||
+                    (data.status === 'downloading' && data.is_valid && (data.downloaded_size || 0) >= HEADER_MIN_SIZE);
+                if (canPlay) {
                     // Remove playable class and play button from all cards first
                     document.querySelectorAll('.movie-card.playable').forEach(c => {
                         c.classList.remove('playable');
@@ -2371,7 +2389,7 @@
                      });
                      
                      // Filter external results that already exist as TMDb cards
-                     const tmdbTitles = filteredLocal.map(m => (m.title || '').toLowerCase().split(/\s+/));
+                     const tmdbTitles = filteredLocal.map(m => (m.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/));
                      const dedupedExternal = externalResults.filter(ext => {
                          if (ext.search_source !== 'external') return true;
                          const name = (ext.title || '').toLowerCase();

@@ -402,7 +402,7 @@ def get_popular_movies(page=1):
         for m in data.get("results", []):
             movies.append({
                 "id": str(m.get("id")),
-                "title": m.get("title"),
+                "title": normalize_name(m.get("title")),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
@@ -423,7 +423,7 @@ def fetch_movie_page(page):
         for m in data.get("results", []):
             movies.append({
                 "id": str(m.get("id")),
-                "title": m.get("title"),
+                "title": normalize_name(m.get("title")),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
@@ -445,7 +445,7 @@ def fetch_movie_by_genre(genre_id, page):
         for m in data.get("results", []):
             movies.append({
                 "id": str(m.get("id")),
-                "title": m.get("title"),
+                "title": normalize_name(m.get("title")),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": m.get("release_date", "")[:4] if m.get("release_date") else "",
@@ -499,7 +499,7 @@ def search_year_parallel(year):
         if year_val == year:
             all_movies.append({
                 "id": str(m.get("id")),
-                "title": m.get("title"),
+                "title": normalize_name(m.get("title")),
                 "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                 "overview": m.get("overview", ""),
                 "year": year_val,
@@ -514,7 +514,7 @@ def search_year_parallel(year):
                 if year_val == year:
                     all_movies.append({
                         "id": str(m.get("id")),
-                        "title": m.get("title"),
+                        "title": normalize_name(m.get("title")),
                         "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                         "overview": m.get("overview", ""),
                         "year": year_val,
@@ -526,6 +526,12 @@ def search_year_parallel(year):
     return all_movies
 
 import re
+
+def normalize_name(name):
+    """Replace non-alphanumeric characters with spaces for consistent matching"""
+    if not name:
+        return name
+    return re.sub(r'[^a-zA-Z0-9\s]', ' ', name)
 
 def extract_resolution(name):
     """Extract resolution from torrent name"""
@@ -565,9 +571,9 @@ def score_torrent(name, title, year=""):
         if noise in name_lower:
             return 0
 
-    # Normalize title: replace special chars with spaces
-    title_words = re.sub(r'[^a-z0-9\s]', ' ', title_lower).split()
-    name_words = set(re.sub(r'[^a-z0-9\s]', ' ', name_lower).split())
+    # Names are already normalized at ingestion (non-alphanumeric replaced with spaces)
+    title_words = title_lower.split()
+    name_words = set(name_lower.split())
 
     if not title_words:
         return 0
@@ -583,8 +589,8 @@ def score_torrent(name, title, year=""):
                     return 0
     
     # Exact title match (highest score)
-    clean_title = re.sub(r'[^a-z0-9\s]', ' ', title_lower).strip()
-    clean_name = re.sub(r'[^a-z0-9\s]', ' ', name_lower).strip()
+    clean_title = title_lower.strip()
+    clean_name = name_lower.strip()
     if clean_title in clean_name or clean_name in clean_title:
         score = 200
     else:
@@ -641,7 +647,7 @@ def search_apibay(query, category="all", year=""):
         
         torrents = []
         for r in results:
-            name = r.get("name", "")
+            name = normalize_name(r.get("name", ""))
             info_hash = r.get("info_hash", "")
             seeders = r.get("seeders", "0")
             cat = r.get("category", "")
@@ -709,7 +715,7 @@ def search_magnetz(query, category="all", year=""):
             
         torrents = []
         for r in results:
-            name = r.get("name", "")
+            name = normalize_name(r.get("name", ""))
             info_hash = r.get("info_hash", "")
             seeders = r.get("seeders", 0)
             
@@ -784,7 +790,7 @@ def start_search_background(search_id, query, sort, category, year=""):
         year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
         movie = {
             "id": str(m.get("id")),
-            "title": m.get("title"),
+            "title": normalize_name(m.get("title")),
             "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
             "overview": m.get("overview", ""),
             "year": year_val,
@@ -822,7 +828,7 @@ def start_search_background(search_id, query, sort, category, year=""):
                     year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
                     movie = {
                         "id": str(m.get("id")),
-                        "title": m.get("title"),
+                        "title": normalize_name(m.get("title")),
                         "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
                         "overview": m.get("overview", ""),
                         "year": year_val,
