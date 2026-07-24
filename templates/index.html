@@ -100,31 +100,16 @@
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
+            width: 0%;
             height: 3px;
             z-index: 1000;
-            background: rgba(0,0,0,0.3);
             opacity: 0;
-            transition: opacity 0.2s;
+            transition: opacity 0.2s, width 0.15s;
             pointer-events: none;
+            background: #e50914;
         }
         .loading-bar.visible {
             opacity: 1;
-        }
-        .loading-bar::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 30%;
-            height: 100%;
-            background: #e50914;
-            border-radius: 0 2px 2px 0;
-            animation: loading-slide 1.2s ease-in-out infinite;
-        }
-        @keyframes loading-slide {
-            0% { left: -30%; }
-            100% { left: 100%; }
         }
         .modal-overlay {
             position: fixed;
@@ -834,11 +819,55 @@
         let lastTotalMovies = 0;
         let cardMap = new Map(); // movie_id → card DOM element
         
-        function showLoading() {
-            document.getElementById('loading-bar').classList.add('visible');
+        function showLoading(pct = 0) {
+            const bar = document.getElementById('loading-bar');
+            bar.classList.add('visible');
+            bar.style.width = pct + '%';
+            document.getElementById('movie-count').textContent = 'Loading... ' + pct + '%';
+        }
+        function setProgress(pct) {
+            document.getElementById('loading-bar').style.width = pct + '%';
+            document.getElementById('movie-count').textContent = 'Loading... ' + pct + '%';
+        }
+        function yieldToUI() {
+            return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        }
+        async function fetchWithProgress(url) {
+            const resp = await fetch(url);
+            const contentLength = parseInt(resp.headers.get('Content-Length') || '0');
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let received = 0;
+            let lastYield = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                const now = performance.now();
+                if (contentLength > 0 && now - lastYield >= 100) {
+                    setProgress(Math.round((received / contentLength) * 100));
+                    await yieldToUI();
+                    lastYield = now;
+                }
+            }
+            const allBytes = new Uint8Array(received);
+            let offset = 0;
+            for (const chunk of chunks) {
+                allBytes.set(chunk, offset);
+                offset += chunk.length;
+            }
+            const bar = document.getElementById('loading-bar');
+            bar.style.transition = 'opacity 0.2s';
+            setProgress(100);
+            await yieldToUI();
+            bar.style.transition = '';
+            return JSON.parse(new TextDecoder().decode(allBytes));
         }
         function hideLoading() {
-            document.getElementById('loading-bar').classList.remove('visible');
+            const bar = document.getElementById('loading-bar');
+            bar.classList.remove('visible');
+            bar.style.width = '0%';
         }
 
         function showDeleteConfirm(card, movie) {
@@ -950,21 +979,19 @@
         }
 
         async function refreshDatabase() {
-            showLoading();
-            document.getElementById('movie-count').textContent = 'Loading...';
+            showLoading(0);
 
-            const [moviesResp, libResp] = await Promise.all([
-                fetch('/api/movies/all?full=1'),
-                fetch('/api/downloads/list')
+            const [moviesData, libData] = await Promise.all([
+                fetchWithProgress('/api/movies/all?full=1'),
+                fetch('/api/downloads/list').then(r => r.json())
             ]);
-            const data = await moviesResp.json();
-            const libData = await libResp.json();
 
             libraryMovies = libData || [];
-            displayMovies = data.movies || [];
+            displayMovies = moviesData.movies || [];
             popularLoaded = true;
             totalDatabaseMovies = displayMovies.length;
-            enrichLibraryMovies();
+
+            await enrichLibraryMovies();
 
             applyCurrentView();
             hideLoading();
@@ -1026,16 +1053,22 @@
 
         function enrichLibraryMovies() {
             if (!displayMovies || displayMovies.length === 0) return;
-            libraryMovies = libraryMovies.map(lm => {
-                const cached = displayMovies.find(m => String(m.id) === String(lm.id));
+            const displayMap = new Map();
+            for (const m of displayMovies) {
+                displayMap.set(String(m.id), m);
+            }
+            const enriched = [];
+            for (const lm of libraryMovies) {
+                const cached = displayMap.get(String(lm.id));
                 if (cached) {
-                    return { ...cached, resolutions: lm.resolutions };
+                    enriched.push({ ...cached, resolutions: lm.resolutions });
+                } else if (lm.id && !String(lm.id).match(/^\d+$/)) {
+                    enriched.push({ ...lm, title: lm.name || 'Unknown' });
+                } else {
+                    enriched.push(lm);
                 }
-                if (lm.id && !String(lm.id).match(/^\d+$/)) {
-                    return { ...lm, title: lm.name || 'Unknown' };
-                }
-                return lm;
-            });
+            }
+            libraryMovies = enriched;
         }
 
         async function loadDownloadedMovies() {
@@ -1043,7 +1076,7 @@
                 const resp = await fetch('/api/downloads/list');
                 const movies = await resp.json();
                 libraryMovies = movies || [];
-                enrichLibraryMovies();
+                await enrichLibraryMovies();
                 applyCurrentView();
             } catch (e) {
                 console.error('Error loading library:', e);
@@ -1051,9 +1084,9 @@
             }
         }
 
-        function applyCurrentView() {
+        async function applyCurrentView() {
             if (viewMode === 'downloaded') {
-                let filtered = sortAndFilterMovies(libraryMovies, currentSearchQuery);
+                let filtered = await sortAndFilterMovies(libraryMovies, currentSearchQuery);
                 renderMovies(filtered, 'downloaded');
                 
                 const MOVIES_PER_PAGE = 100;
@@ -1063,46 +1096,33 @@
                 document.getElementById('movie-count').textContent = filtered.length.toLocaleString() + ' Downloaded Movies';
             } else {
                 if (currentSearchQuery) {
-                    performSearch(currentSearchQuery, currentPage);
+                    await performSearch(currentSearchQuery, currentPage);
                 } else {
-                    loadAll(currentPage);
+                    await loadAll(currentPage);
                 }
             }
         }
         
         function sortAndFilterMovies(movies, query) {
-            let result = [...movies];
-            
-            if (currentGenre) {
-                const genreId = parseInt(currentGenre);
-                result = result.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
+            const genreId = currentGenre ? parseInt(currentGenre) : null;
+            const minRating = currentRating === 'none' ? -1 : (currentRating ? parseFloat(currentRating) : null);
+            const filterNone = currentRating === 'none';
+            const year = currentYear ? parseInt(currentYear) : null;
+            const queryLower = query ? query.toLowerCase() : '';
+            const result = [];
+            for (const m of movies) {
+                if (genreId && m.genre_ids && !m.genre_ids.includes(genreId)) continue;
+                if (filterNone && m.rating && m.rating !== 'None' && m.rating !== 0) continue;
+                if (minRating !== null && minRating !== -1 && (!m.rating || m.rating < minRating)) continue;
+                if (year && (!m.year || parseInt(m.year) !== year)) continue;
+                if (queryLower && !(m.title || '').toLowerCase().includes(queryLower)) continue;
+                result.push(m);
             }
-            
-            if (currentRating) {
-                if (currentRating === 'none') {
-                    result = result.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
-                } else {
-                    const minRating = parseFloat(currentRating);
-                    result = result.filter(m => m.rating && m.rating >= minRating);
-                }
-            }
-            
-            if (currentYear) {
-                const year = parseInt(currentYear);
-                result = result.filter(m => m.year && parseInt(m.year) === year);
-            }
-            
-            if (query) {
-                result = result.filter(m => 
-                    (m.title || '').toLowerCase().includes(query.toLowerCase())
-                );
-            }
-            
             return result;
         }
         
         async function loadAll(page = 1) {
-            showLoading();
+            showLoading(0);
             if (viewMode === 'downloaded') {
                 hideLoading();
                 applyCurrentView();
@@ -1114,62 +1134,51 @@
             currentSearchQuery = '';
 
             if (!popularLoaded) {
-                const [moviesResp, libResp] = await Promise.all([
-                    fetch('/api/movies/all?full=1'),
-                    fetch('/api/downloads/list')
+                const [moviesData, libData] = await Promise.all([
+                    fetchWithProgress('/api/movies/all?full=1'),
+                    fetch('/api/downloads/list').then(r => r.json())
                 ]);
-                const data = await moviesResp.json();            
-            const libData = await libResp.json();
-            libraryMovies = libData || [];
-                if (data.incremental) {
-                    displayMovies = data.movies || [];
-                } else {            
-                displayMovies = data.movies || [];
-			}
+                libraryMovies = libData || [];
+                displayMovies = moviesData.movies || [];
                 popularLoaded = true;
                 totalDatabaseMovies = displayMovies.length;
-				enrichLibraryMovies();
-			}
-            
-            // Apply genre filter if selected
+                await enrichLibraryMovies();
+            }
 
-            let filteredMovies = displayMovies;
-            if (currentGenre) {
-                const genreId = parseInt(currentGenre);
-                filteredMovies = displayMovies.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
-            }
-            
-            // Apply rating filter if selected
-            if (currentRating) {
-                if (currentRating === 'none') {
-                    filteredMovies = filteredMovies.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
-                } else {
-                    const minRating = parseFloat(currentRating);
-                    filteredMovies = filteredMovies.filter(m => m.rating && m.rating >= minRating);
+            // Apply filters in single pass
+            let filteredMovies;
+            if (currentGenre || currentRating || currentYear) {
+                const genreId = currentGenre ? parseInt(currentGenre) : null;
+                const filterNone = currentRating === 'none';
+                const minRating = (!filterNone && currentRating) ? parseFloat(currentRating) : null;
+                const year = currentYear ? parseInt(currentYear) : null;
+                filteredMovies = [];
+                for (const m of displayMovies) {
+                    if (genreId && m.genre_ids && !m.genre_ids.includes(genreId)) continue;
+                    if (filterNone && m.rating && m.rating !== 'None' && m.rating !== 0) continue;
+                    if (minRating !== null && (!m.rating || m.rating < minRating)) continue;
+                    if (year && (!m.year || parseInt(m.year) !== year)) continue;
+                    filteredMovies.push(m);
                 }
+            } else {
+                filteredMovies = displayMovies;
             }
-            
-            // Apply year filter if selected
-            if (currentYear) {
-                const year = parseInt(currentYear);
-                filteredMovies = filteredMovies.filter(m => m.year && parseInt(m.year) === year);
-            }
-            
+
             // Update movie count display
             if (currentGenre || currentSearchQuery || currentRating || currentYear) {
                 document.getElementById('movie-count').textContent = filteredMovies.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
             } else {
                 document.getElementById('movie-count').textContent = totalDatabaseMovies.toLocaleString() + ' Movies';
             }
-            
+
             const MOVIES_PER_PAGE = 100;
             currentTotalPages = Math.max(1, Math.ceil(filteredMovies.length / MOVIES_PER_PAGE));
             currentPage = Math.min(page, currentTotalPages);
-            
+
             const startIdx = (currentPage - 1) * MOVIES_PER_PAGE;
             const endIdx = startIdx + MOVIES_PER_PAGE;
             const pageMovies = filteredMovies.slice(startIdx, endIdx);
-            
+
             currentMovies = pageMovies;
             renderMovies(pageMovies, 'popular');
             updatePagination(currentTotalPages);
@@ -1186,40 +1195,39 @@
             nextBtn.disabled = currentPage >= totalPages;
         }
         
-        function changePage(delta) {
+        async function changePage(delta) {
             const newPage = currentPage + delta;
             if (newPage < 1 || newPage > currentTotalPages) return;
-            
-            // Apply current filters to get the correct dataset
-            let filteredMovies = displayMovies;
-            if (currentGenre) {
-                const genreId = parseInt(currentGenre);
-                filteredMovies = displayMovies.filter(m => !m.genre_ids || m.genre_ids.includes(genreId));
-            }
-            if (currentRating) {
-                if (currentRating === 'none') {
-                    filteredMovies = filteredMovies.filter(m => !m.rating || m.rating === 'None' || m.rating === 0);
-                } else {
-                    const minRating = parseFloat(currentRating);
-                    filteredMovies = filteredMovies.filter(m => m.rating && m.rating >= minRating);
+
+            let filteredMovies;
+            if (currentGenre || currentRating || currentYear) {
+                const genreId = currentGenre ? parseInt(currentGenre) : null;
+                const filterNone = currentRating === 'none';
+                const minRating = (!filterNone && currentRating) ? parseFloat(currentRating) : null;
+                const year = currentYear ? parseInt(currentYear) : null;
+                filteredMovies = [];
+                for (const m of displayMovies) {
+                    if (genreId && m.genre_ids && !m.genre_ids.includes(genreId)) continue;
+                    if (filterNone && m.rating && m.rating !== 'None' && m.rating !== 0) continue;
+                    if (minRating !== null && (!m.rating || m.rating < minRating)) continue;
+                    if (year && (!m.year || parseInt(m.year) !== year)) continue;
+                    filteredMovies.push(m);
                 }
+            } else {
+                filteredMovies = displayMovies;
             }
-            if (currentYear) {
-                const year = parseInt(currentYear);
-                filteredMovies = filteredMovies.filter(m => m.year && parseInt(m.year) === year);
-            }
-            
+
             const MOVIES_PER_PAGE = 100;
             const startIdx = (newPage - 1) * MOVIES_PER_PAGE;
             const endIdx = startIdx + MOVIES_PER_PAGE;
-            
+
             let pageMovies;
             if (currentSource === 'search') {
                 pageMovies = searchResultsCache.slice(startIdx, endIdx);
             } else {
                 pageMovies = filteredMovies.slice(startIdx, endIdx);
             }
-            
+
             currentPage = newPage;
             currentMovies = pageMovies;
             renderMovies(pageMovies, currentSource);
@@ -1235,7 +1243,7 @@
             return `${title}|${year}|${rating}|${genres}|${id}`;
         }
 
-        function renderMovies(movies, source) {
+        async function renderMovies(movies, source) {
             const wasStreaming = isStreaming;
             const wasPolling = downloadPollInterval !== null;
             const prevInfoHash = activeCard ? (activeCard.querySelector('.resolution-item')?.dataset.infoHash || null) : null;
@@ -1261,7 +1269,9 @@
                 return;
             }
             
-            movies.forEach(movie => {
+            for (let i = 0; i < movies.length; i++) {
+                const movie = movies[i];
+                if (i > 0 && i % 25 === 0) await yieldToUI();
                 const localEntry = libraryMovies.find(lm => lm.id === movie.id);
                 if (localEntry && localEntry.resolutions) {
                     movie.resolutions = localEntry.resolutions;
@@ -1455,7 +1465,7 @@
                 }
 
                 grid.appendChild(card);
-            });
+            }
             
             // Re-enable progress polling on the new card if a download was in progress
             if (wasPolling && prevInfoHash) {
@@ -1945,7 +1955,7 @@
 
                 const libResp = await fetch('/api/downloads/list');
                 libraryMovies = await libResp.json();
-                enrichLibraryMovies();
+                await enrichLibraryMovies();
 
                 downloadPollInterval = setInterval(() => checkDownload(card, info_hash), 2000);
 
@@ -2049,7 +2059,7 @@
 
                 const libResp = await fetch('/api/downloads/list');
                 libraryMovies = await libResp.json();
-                enrichLibraryMovies();
+                await enrichLibraryMovies();
 
                 if (downloadPollInterval) {
                     clearInterval(downloadPollInterval);
@@ -2326,14 +2336,14 @@
             }, 500);
         }
         
-        function performSearch(query, page = 1) {
+        async function performSearch(query, page = 1) {
             if (!query) {
                 loadAll(page);
                 return;
             }
 
             if (viewMode === 'downloaded') {
-                let filtered = sortAndFilterMovies(libraryMovies, query);
+                let filtered = await sortAndFilterMovies(libraryMovies, query);
                 renderMovies(filtered, 'search');
                 updatePagination(1);
                 document.getElementById('movie-count').textContent = filtered.length.toLocaleString() + ' Downloaded Movies';
@@ -2362,7 +2372,7 @@
             );
             
             // Apply current filters to local matches
-            const filteredLocal = sortAndFilterMovies(localMatches, query);
+            const filteredLocal = await sortAndFilterMovies(localMatches, query);
             
             const MOVIES_PER_PAGE = 100;
             const pageLocal = filteredLocal.slice(0, MOVIES_PER_PAGE);
