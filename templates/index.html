@@ -881,7 +881,7 @@
                 overlay.classList.remove('visible');
             }
 
-            const title = movie.title || movie.name || 'Unknown';
+            const title = movie.title || movie.name || '';
             msg.innerHTML = 'Delete <strong>' + title + '</strong>?';
             overlay.classList.add('visible');
             yesBtn.onclick = () => {
@@ -929,7 +929,7 @@
             const noBtn = document.getElementById('modal-no');
             const closeBtn = document.getElementById('modal-close');
             const infoHash = item.dataset.infoHash;
-            const name = item.dataset.torrentName || 'Unknown';
+            const name = item.dataset.torrentName || '';
 
             function hide() {
                 overlay.classList.remove('visible');
@@ -962,6 +962,24 @@
                                 card.classList.remove('downloading', 'playable');
                                 const btn = card.querySelector('.dl-play');
                                 if (btn) btn.classList.remove('ready');
+                            }
+                            if (movieEntry && movieEntry.resolutions) {
+                                const hasDownloads = movieEntry.resolutions.some(r =>
+                                    r.dl_status || parseInt(r.progress || 0, 10) > 0 || r.is_playable
+                                );
+                                if (!hasDownloads) {
+                                    libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
+                                    displayMovies.forEach(m => { if (m.id === movie.id) delete m.resolutions; });
+                                    card.remove();
+                                    cardMap.delete(movie.id);
+                                    const mcEl = document.getElementById('movie-count');
+                                    const mcText = mcEl.textContent;
+                                    const match = mcText.match(/^([\d,]+)/);
+                                    if (match) {
+                                        const curr = parseInt(match[1].replace(/,/g, ''));
+                                        mcEl.textContent = (curr - 1).toLocaleString() + mcText.slice(match[1].length);
+                                    }
+                                }
                             }
                             showNotification('Torrent deleted');
                         } else {
@@ -1063,7 +1081,7 @@
                 if (cached) {
                     enriched.push({ ...cached, resolutions: lm.resolutions });
                 } else if (lm.id && !String(lm.id).match(/^\d+$/)) {
-                    enriched.push({ ...lm, title: lm.name || 'Unknown' });
+                    enriched.push(lm);
                 } else {
                     enriched.push(lm);
                 }
@@ -1277,7 +1295,7 @@
                     movie.resolutions = localEntry.resolutions;
                 }
 
-                const title = movie.title || movie.name || 'Unknown';
+                const title = movie.title || movie.name || '';
                 const year = movie.year || '';
 
                 const existingCard = cardMap.get(movie.id);
@@ -1766,7 +1784,7 @@
         }
 
         function setupTorrentHover(card, movie) {
-            const title = movie.title || movie.name || 'Unknown';
+            const title = movie.title || movie.name || '';
             const year = movie.year || '';
             const key = getMovieUniqueKey(movie);
 

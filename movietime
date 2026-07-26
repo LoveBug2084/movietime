@@ -1045,8 +1045,7 @@ def validate_torrent_contents(handle, info_hash, tmdb_id, name):
             "source": existing_status.get("source", current_download.get("source", "")),
         })
 
-        tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
-        hash_dir = os.path.join(DOWNLOAD_DIR, tmdb_str, info_hash)
+        hash_dir = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
         if os.path.isdir(hash_dir):
             try:
                 shutil.rmtree(hash_dir, ignore_errors=True)
@@ -1081,8 +1080,7 @@ def download_torrent(magnet_link, info_hash, name, tmdb_id=None):
     print(f"Starting libtorrent download: {magnet_link[:80]}...")
  
     atp = lt.parse_magnet_uri(magnet_link)
-    tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
-    hash_dir = os.path.join(DOWNLOAD_DIR, tmdb_str, info_hash)
+    hash_dir = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
     atp.save_path = os.path.abspath(hash_dir)
     os.makedirs(atp.save_path, exist_ok=True)
     atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
@@ -1170,8 +1168,7 @@ def save_torrent_status(tmdb_id, info_hash, status_data):
     """Save torrent download status to download/<tmdb_id>/<info_hash>/.movietimeStatus"""
     if not info_hash:
         return
-    tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
-    hash_dir = os.path.join(DOWNLOAD_DIR, tmdb_str, info_hash)
+    hash_dir = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
     os.makedirs(hash_dir, exist_ok=True)
     status_path = os.path.join(hash_dir, STATUS_FILE_NAME)
     try:
@@ -1184,8 +1181,7 @@ def get_torrent_status(tmdb_id, info_hash):
     """Read torrent download status from download/<tmdb_id>/<info_hash>/.movietimeStatus"""
     if not info_hash:
         return None
-    tmdb_str = str(tmdb_id) if tmdb_id is not None else "_unknown"
-    status_path = os.path.join(DOWNLOAD_DIR, tmdb_str, info_hash, STATUS_FILE_NAME)
+    status_path = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash, STATUS_FILE_NAME)
     if not os.path.exists(status_path):
         return None
     try:
@@ -1724,9 +1720,7 @@ def api_downloads_list():
             else:
                 key = info_hash
             if key not in movies:
-                movie_entry = {"id": tmdb_id or info_hash, "resolutions": [], "last_updated": last_updated}
-                if not tmdb_id or tmdb_id == "_unknown":
-                    movie_entry["title"] = status.get("name", "Unknown")
+                movie_entry = {"id": tmdb_id or info_hash, "resolutions": [], "last_updated": last_updated, "title": status.get("name", tmdb_str)}
                 movies[key] = movie_entry
 
             movies[key]["resolutions"].append(entry)
