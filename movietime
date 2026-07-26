@@ -115,6 +115,8 @@ db_lock = threading.Lock()  # Protect main database file operations (active/buil
 # Rate limiting: 24 req/sec = 1/24 sec between requests
 SYNC_RATE_LIMIT = 1 / 24
 
+MOVIES_PER_PAGE = 100
+
 # Torrent API Cache
 TORRENT_CACHE = {"apibay": {}, "magnetz": {}}
 TORRENT_CACHE_EXPIRATION = 3600 # 1 hour
@@ -770,7 +772,6 @@ def start_search_background(search_id, query, sort, category, year=""):
     global active_searches
     MAX_MOVIES = 500
     MAX_PAGES = 25
-    MOVIES_PER_PAGE = 100
 
     search = active_searches.get(search_id)
     if not search:
@@ -1370,8 +1371,6 @@ def api_popular():
     except:
         page = 1
 
-    MOVIES_PER_PAGE = 100
-
     cache_data = load_cached_movies()
 
     if cache_data:
@@ -1471,8 +1470,6 @@ def api_search():
         page = int(page)
     except:
         page = 1
-    
-    MOVIES_PER_PAGE = 100
     
     if category in ["tv", "music", "adult", "movies"]:
         all_results = search_apibay(query, category, year) + search_magnetz(query, category, year)
@@ -1614,8 +1611,6 @@ def api_search_page():
         page = int(page)
     except:
         page = 1
-
-    MOVIES_PER_PAGE = 100
 
     if not search_id or search_id not in active_searches:
         return jsonify({"error": "Search not found"}), 404
