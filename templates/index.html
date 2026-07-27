@@ -898,6 +898,8 @@
             displayMovies = moviesData.movies || [];
             popularLoaded = true;
             totalDatabaseMovies = displayMovies.length;
+            cardMap.clear();
+            torrentCache = {};
 
             await enrichLibraryMovies();
 
@@ -1232,6 +1234,10 @@
                             source: r.source || '',
                             category: 'movies'
                         })));
+                    } else {
+                        listEl.innerHTML = '';
+                        listEl.classList.remove('visible');
+                        card.classList.remove('downloading', 'playable');
                     }
 
                     // Re-attach context menu for downloaded
