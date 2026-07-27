@@ -171,7 +171,7 @@
         }
         .modal-buttons button:last-child:hover { background: #444; }
         .refresh-btn {
-            background: #0099ff;
+            background: #333;
             border: none;
             color: #fff;
             padding: 0 15px;
@@ -187,7 +187,14 @@
             line-height: 1;
         }
         .refresh-btn:hover {
-            background: #33aaff;
+            background: #555;
+        }
+        @keyframes pulse-refresh {
+            0%, 100% { background: #333; }
+            50% { background: #0099ff; }
+        }
+        .refresh-btn.has-updates {
+            animation: pulse-refresh 2s ease-in-out infinite;
         }
         .folder-btn {
             background: #333;
@@ -705,6 +712,7 @@
         const HEADER_MIN_PERCENT = 0.04; // 4% of file size
         let popularLoaded = false;
         let totalDatabaseMovies = 0;
+        let currentFilterPrefix = '';
         let lastTotalMovies = 0;
         let cardMap = new Map(); // movie_id → card DOM element
         
@@ -888,6 +896,7 @@
 
         async function refreshDatabase() {
             showLoading(0);
+            document.querySelector('.refresh-btn').classList.remove('has-updates');
 
             const [moviesData, libData] = await Promise.all([
                 fetchWithProgress('/api/movies/all?full=1'),
@@ -1090,10 +1099,11 @@
 
             // Update movie count display
             if (currentGenre || currentSearchQuery || currentRating || currentYear) {
-                document.getElementById('movie-count').textContent = filteredMovies.length.toLocaleString() + ' of ' + totalDatabaseMovies.toLocaleString() + ' Movies';
+                currentFilterPrefix = filteredMovies.length.toLocaleString() + ' of ';
             } else {
-                document.getElementById('movie-count').textContent = totalDatabaseMovies.toLocaleString() + ' Movies';
+                currentFilterPrefix = '';
             }
+            updateMovieCountDisplay();
 
             const MOVIES_PER_PAGE = 100;
             currentTotalPages = Math.max(1, Math.ceil(filteredMovies.length / MOVIES_PER_PAGE));
@@ -2384,6 +2394,11 @@
             }
         }
         // Initialize - loads movies and library data before rendering
+        function updateMovieCountDisplay() {
+            if (viewMode === 'downloaded') return;
+            document.getElementById('movie-count').textContent = currentFilterPrefix + totalDatabaseMovies.toLocaleString() + ' Movies';
+        }
+
         async function initApp() {
             try {
                 const resp = await fetch('/api/tmdb/status');
@@ -2439,6 +2454,20 @@
             input.onkeydown = (e) => { if (e.key === 'Enter') saveKey(); };
         }
         initApp();
+
+        let countPollInterval = null;
+        async function pollMovieCount() {
+            try {
+                const resp = await fetch('/api/movies/count');
+                const data = await resp.json();
+                if (data.total && data.total !== totalDatabaseMovies) {
+                    totalDatabaseMovies = data.total;
+                    updateMovieCountDisplay();
+                    document.querySelector('.refresh-btn').classList.add('has-updates');
+                }
+            } catch (e) {}
+        }
+        countPollInterval = setInterval(pollMovieCount, 30000);
     </script>
 </body>
 </html>

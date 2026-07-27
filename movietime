@@ -1417,6 +1417,11 @@ def api_popular():
         "total_movies": 0
     })
 
+@app.route("/api/movies/count")
+def api_movies_count():
+    """Return total movie count without loading the full database"""
+    return jsonify({"total": movie_count})
+
 @app.route("/api/movies/all")
 def api_movies_all():
     """Get movies - full from active.json if ?full=1, otherwise from new_movies buffer"""
