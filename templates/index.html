@@ -441,7 +441,8 @@
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 11px;
-            white-space: nowrap;
+            white-space: normal;
+            max-width: 250px;
             z-index: 10;
             pointer-events: none;
             box-shadow: 0 2px 8px rgba(0,0,0,0.5);
@@ -455,37 +456,24 @@
             font-size: 11px;
         }
         .movie-card .resolution-item .res-seeders.ready {
-            color: #00ff00;
-        }
-        .movie-card .torrent-status {
-            font-size: 12px;
-            margin-top: 5px;
-        }
-        .movie-card .torrent-status.searching {
-            color: #00ff00;
-        }
-        .movie-card .torrent-status.error {
-            color: #e50914;
-        }
-        .movie-card .download-bar {
             display: none;
-            gap: 4px;
-            margin-top: 4px;
-            padding: 4px 8px;
-            background: rgba(0,0,0,0.85);
-            border-radius: 0 0 8px 8px;
         }
-        .movie-card.downloading .download-bar,
-        .movie-card.playable .download-bar {
-            display: flex;
+        .movie-card .res-play-btn {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+            line-height: 1.2;
         }
-        .movie-card .download-bar .dl-buttons {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
+        .movie-card .res-play-btn:hover {
+            background: #ff3333;
         }
-        .movie-card .download-bar .dl-buttons .dl-cancel {
+        .movie-card .dl-cancel {
+            display: none;
             background: #444;
             border: none;
             color: #fff;
@@ -494,29 +482,13 @@
             cursor: pointer;
             font-size: 11px;
             font-weight: bold;
+            margin: 4px auto;
         }
-        .movie-card .download-bar .dl-buttons .dl-cancel:hover {
+        .movie-card .dl-cancel:hover {
             background: #e50914;
         }
-        .movie-card .download-bar .dl-buttons .dl-play {
-            background: #e50914;
-            border: none;
-            color: #fff;
-            padding: 4px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 11px;
-            font-weight: bold;
-            visibility: visible;
-            opacity: 0.4;
-            pointer-events: none;
-        }
-        .movie-card .download-bar .dl-buttons .dl-play:hover {
-            background: #ff3333;
-        }
-        .movie-card .download-bar .dl-buttons .dl-play.ready {
-            opacity: 1;
-            pointer-events: auto;
+        .movie-card.downloading .dl-cancel {
+            display: block;
         }
         .movie-card .poster-container {
             position: relative;
@@ -858,8 +830,6 @@
                             item.remove();
                             if (card.classList.contains('downloading')) {
                                 card.classList.remove('downloading', 'playable');
-                                const btn = card.querySelector('.dl-play');
-                                if (btn) btn.classList.remove('ready');
                             }
                             if (movieEntry && movieEntry.resolutions) {
                                 const hasDownloads = movieEntry.resolutions.some(r =>
@@ -1323,13 +1293,8 @@
                             ${posterHtml}
                             <div class="description">${overview}</div>
                         </div>
-                        <div class="download-bar">
-                            <div class="dl-buttons">
-                                <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
-                                <button class="dl-play" onclick="event.stopPropagation(); startPlaybackFromCard(event)">Play</button>
-                            </div>
-                        </div>
                         <div class="info">
+                            <button class="dl-cancel" onclick="event.stopPropagation(); cancelDownload()">Cancel</button>
                             <div class="year-rating"><span class="year-value">${year}</span> ${ratingDisplay}</div>
                             <div class="stars">${starsHtml}</div>
                             <div class="title">${title}</div>
@@ -1544,6 +1509,22 @@
                         seeders.className = (s === 'Ready') ? 'res-seeders ready' : 'res-seeders';
                     }
 
+                    let existingPlayBtn = existing.querySelector('.res-play-btn');
+                    if (torrent.is_playable) {
+                        if (!existingPlayBtn) {
+                            existingPlayBtn = document.createElement('button');
+                            existingPlayBtn.className = 'res-play-btn';
+                            existingPlayBtn.textContent = 'Play';
+                            seeders.parentNode.insertBefore(existingPlayBtn, seeders.nextSibling);
+                        }
+                        existingPlayBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            startPlayback(torrent.info_hash);
+                        };
+                    } else if (existingPlayBtn) {
+                        existingPlayBtn.remove();
+                    }
+
                     const progress = parseInt(torrent.progress || 0, 10);
                     const progressEl = existing.querySelector('.res-progress');
                     if (progressEl) {
@@ -1592,6 +1573,17 @@
                     seeders.textContent = typeof s === 'number' ? `${s} seeders` : (s || '');
                     if (s === 'Ready') seeders.className = 'res-seeders ready';
 
+                    let playBtn = null;
+                    if (torrent.is_playable) {
+                        playBtn = document.createElement('button');
+                        playBtn.className = 'res-play-btn';
+                        playBtn.textContent = 'Play';
+                        playBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            startPlayback(torrent.info_hash);
+                        };
+                    }
+
                     const progress = parseInt(torrent.progress || 0, 10);
                     const progressEl = document.createElement('span');
                     progressEl.className = 'res-progress';
@@ -1607,6 +1599,7 @@
                     item.appendChild(label);
                     item.appendChild(size);
                     item.appendChild(seeders);
+                    if (playBtn) item.appendChild(playBtn);
                     item.appendChild(progressEl);
                     item.appendChild(progressTrack);
 
@@ -1667,8 +1660,6 @@
             listEl.classList.add('visible');
             if (anyPlayable) {
                 card.classList.add('playable');
-                const btn = card.querySelector('.dl-play');
-                if (btn) btn.classList.add('ready');
             }
 
         }
@@ -1972,11 +1963,9 @@
                 return;
             }
 
-            const dlPlay = card.querySelector('.dl-play');
-
             if (data.status === 'ready') {
+                card.classList.remove('downloading');
                 card.classList.add('playable');
-                dlPlay.classList.add('ready');
 
                 // Update resolution list progress for this hash
                 const readyItems = card.querySelectorAll(`.resolution-item[data-info-hash="${expectedInfoHash}"]`);
@@ -2062,9 +2051,9 @@
                     const playableResp = await fetch('/api/download/playable');
                     const playableData = await playableResp.json();
                     if (playableData.playable && isValid) {
+                        card.classList.remove('downloading');
                         card.classList.add('playable');
                         isStreaming = true;
-                        dlPlay.classList.add('ready');
                         startPlayback(expectedInfoHash);
                     }
                 }
@@ -2076,37 +2065,6 @@
             return rank[res] || 0;
         }
 
-        async function startPlaybackFromCard(event) {
-            const card = event.target.closest('.movie-card');
-            if (!card) return;
-            const activeItem = card.querySelector('.resolution-item');
-            if (activeItem && activeItem.dataset.infoHash) {
-                card.classList.add('playable');
-                const btn = card.querySelector('.dl-play');
-                if (btn) btn.classList.add('ready');
-                startPlayback(activeItem.dataset.infoHash);
-                return;
-            }
-            const movieId = String(card.dataset.movieId);
-            const entry = libraryMovies.find(m => String(m.id) === movieId);
-            if (entry && entry.resolutions && entry.resolutions.length > 0) {
-                const complete = entry.resolutions.filter(r => r.is_playable && parseInt(r.progress) >= 100);
-                let best;
-                if (complete.length > 0) {
-                    best = complete.sort((a, b) => resolutionRank(b.resolution) - resolutionRank(a.resolution))[0];
-                } else {
-                    best = entry.resolutions.sort((a, b) => {
-                        const diff = (parseInt(b.progress) || 0) - (parseInt(a.progress) || 0);
-                        if (diff !== 0) return diff;
-                        const rDiff = resolutionRank(b.resolution) - resolutionRank(a.resolution);
-                        if (rDiff !== 0) return rDiff;
-                        return parseInt(b.seeders || 0) - parseInt(a.seeders || 0);
-                    })[0];
-                }
-                if (best && best.info_hash) startPlayback(best.info_hash);
-            }
-        }
-        
         function formatSize(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -2131,9 +2089,15 @@
                     activeCard.classList.remove('playable');
                 }
                 activeCard = card;
-                card.classList.add('downloading');
-                if (downloadPollInterval) clearInterval(downloadPollInterval);
-                downloadPollInterval = setInterval(() => checkDownload(card, infoHash), 2000);
+
+                const resItem = card.querySelector(`.resolution-item[data-info-hash="${infoHash}"]`);
+                const isComplete = resItem && resItem.querySelector('.res-progress-fill.completed');
+
+                if (!isComplete) {
+                    card.classList.add('downloading');
+                    if (downloadPollInterval) clearInterval(downloadPollInterval);
+                    downloadPollInterval = setInterval(() => checkDownload(card, infoHash), 2000);
+                }
             }
 
             try {
@@ -2162,11 +2126,8 @@
                 const canPlay = data.status === 'ready' ||
                     (data.status === 'downloading' && data.is_valid && (data.downloaded_size || 0) >= Math.max(Math.floor((parseInt(data.total_size) || 0) * HEADER_MIN_PERCENT), 10 * 1024 * 1024));
                 if (canPlay) {
-                    // Remove playable class and play button from all cards first
                     document.querySelectorAll('.movie-card.playable').forEach(c => {
                         c.classList.remove('playable');
-                        const btn = c.querySelector('.dl-play');
-                        if (btn) btn.classList.remove('ready');
                     });
 
                     if (data.info_hash) {
@@ -2175,8 +2136,6 @@
                             if (card.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`) &&
                                 (!data.tmdb_id || !card.dataset.movieId || String(data.tmdb_id) === String(card.dataset.movieId))) {
                                 card.classList.add('playable');
-                                const btn = card.querySelector('.dl-play');
-                                if (btn) btn.classList.add('ready');
                             }
                         });
                     }
@@ -2196,8 +2155,6 @@
             if (activeCard) {
                 activeCard.classList.remove('downloading');
                 activeCard.classList.remove('playable');
-                const btn = activeCard.querySelector('.dl-play');
-                if (btn) btn.classList.remove('ready');
                 activeCard = null;
             }
             isStreaming = false;
