@@ -95,6 +95,10 @@
             font-size: 14px;
             color: #fff;
             white-space: nowrap;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
+        }
+        #movie-count {
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
         }
         .loading-bar {
             position: fixed;
@@ -216,6 +220,7 @@
             font-size: 14px;
             color: #fff;
             white-space: nowrap;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
         }
         .sort-bar select {
             background: #222;
@@ -664,6 +669,18 @@
             </div>
         </div>
     </div>
+
+    <div class="modal-overlay" id="tmdb-overlay">
+        <div class="modal-box">
+            <div style="margin-bottom: 15px; font-size: 18px;">TMDB API Key Required</div>
+            <div style="font-size: 14px; color: #aaa; margin-bottom: 15px;">Enter your TMDB API key to continue. Don't have one? <a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://www.themoviedb.org/settings/api'})}); return false;" style="color: #0099ff;">Get one here</a></div>
+            <input type="text" id="tmdb-key-input" placeholder="Paste your TMDB API key here" style="width: 100%; padding: 10px 15px; font-size: 16px; border: none; border-radius: 5px; background: #333; color: #fff; outline: none; font-weight: bold; margin-bottom: 5px;">
+            <div id="tmdb-key-error" style="color: #e50914; font-size: 13px; display: none;"></div>
+            <div class="modal-buttons" style="margin-top: 15px;">
+                <button id="tmdb-key-save">Save</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         let currentMovies = [];
@@ -685,7 +702,7 @@
         let hoverTimeouts = {};
         let pendingFetches = {};
         let downloadPollInterval = null;
-        const HEADER_MIN_SIZE = 100 * 1024 * 1024; // 100MB
+        const HEADER_MIN_PERCENT = 0.04; // 4% of file size
         let popularLoaded = false;
         let totalDatabaseMovies = 0;
         let lastTotalMovies = 0;
@@ -1748,11 +1765,12 @@
                     for (const c of cards) {
                         if (c.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`)) {
                             const downloaded = data.downloaded_size || 0;
+                            const fileSize = parseInt(data.total_size) || 0;
+                            const headerMin = Math.max(Math.floor(fileSize * HEADER_MIN_PERCENT), 10 * 1024 * 1024);
                             let displayPercent;
-                            if (downloaded < HEADER_MIN_SIZE) {
-                                displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
+                            if (downloaded < headerMin) {
+                                displayPercent = Math.min(100, Math.floor((downloaded / headerMin) * 100));
                             } else {
-                                const fileSize = parseInt(data.total_size);
                                 if (!fileSize) break;
                                 displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                             }
@@ -1763,8 +1781,8 @@
                                 const text = item.querySelector('.res-progress');
                                 if (fill) {
                                     fill.style.width = displayPercent + '%';
-                                    fill.classList.toggle('phase1', downloaded < HEADER_MIN_SIZE);
-                                    fill.classList.toggle('phase2', downloaded >= HEADER_MIN_SIZE && displayPercent < 100);
+                                    fill.classList.toggle('phase1', downloaded < headerMin);
+                                    fill.classList.toggle('phase2', downloaded >= headerMin && displayPercent < 100);
                                     fill.classList.toggle('completed', displayPercent >= 100);
                                 }
                                 if (text) text.textContent = displayPercent + '%';
@@ -1999,12 +2017,13 @@
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
                 const isValid = data.is_valid;
+                const fileSize = parseInt(data.total_size) || 0;
+                const headerMin = Math.max(Math.floor(fileSize * HEADER_MIN_PERCENT), 10 * 1024 * 1024);
 
                 let displayPercent;
-                if (downloaded < HEADER_MIN_SIZE) {
-                    displayPercent = Math.min(100, Math.floor((downloaded / HEADER_MIN_SIZE) * 100));
+                if (downloaded < headerMin) {
+                    displayPercent = Math.min(100, Math.floor((downloaded / headerMin) * 100));
                 } else {
-                    const fileSize = parseInt(data.total_size);
                     if (!fileSize) return;
                     displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                 }
@@ -2017,7 +2036,7 @@
                     const fill = item.querySelector('.res-progress-fill');
                     if (fill) {
                         fill.style.width = displayPercent + '%';
-                        fill.classList.toggle('phase1', downloaded < HEADER_MIN_SIZE);
+                        fill.classList.toggle('phase1', downloaded < headerMin);
                         fill.classList.toggle('completed', displayPercent >= 100);
                     }
                 });
@@ -2125,7 +2144,7 @@
                 const data = await resp.json();
 
                 const canPlay = data.status === 'ready' ||
-                    (data.status === 'downloading' && data.is_valid && (data.downloaded_size || 0) >= HEADER_MIN_SIZE);
+                    (data.status === 'downloading' && data.is_valid && (data.downloaded_size || 0) >= Math.max(Math.floor((parseInt(data.total_size) || 0) * HEADER_MIN_PERCENT), 10 * 1024 * 1024));
                 if (canPlay) {
                     // Remove playable class and play button from all cards first
                     document.querySelectorAll('.movie-card.playable').forEach(c => {
@@ -2359,7 +2378,61 @@
             }
         }
         // Initialize - loads movies and library data before rendering
-        loadAll();
+        async function initApp() {
+            try {
+                const resp = await fetch('/api/tmdb/status');
+                const data = await resp.json();
+                if (data.configured) {
+                    loadAll();
+                    return;
+                }
+            } catch (e) {}
+
+            const overlay = document.getElementById('tmdb-overlay');
+            const input = document.getElementById('tmdb-key-input');
+            const saveBtn = document.getElementById('tmdb-key-save');
+            const errorEl = document.getElementById('tmdb-key-error');
+            overlay.classList.add('visible');
+            input.focus();
+
+            async function saveKey() {
+                const key = input.value.trim();
+                if (!key) {
+                    errorEl.textContent = 'Please enter an API key';
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+                errorEl.style.display = 'none';
+                try {
+                    const resp = await fetch('/api/tmdb/key', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key })
+                    });
+                    const result = await resp.json();
+                    if (result.ok) {
+                        overlay.classList.remove('visible');
+                        loadAll();
+                    } else {
+                        errorEl.textContent = result.error || 'Failed to save key';
+                        errorEl.style.display = 'block';
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save';
+                    }
+                } catch (e) {
+                    errorEl.textContent = 'Error saving key';
+                    errorEl.style.display = 'block';
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save';
+                }
+            }
+
+            saveBtn.onclick = saveKey;
+            input.onkeydown = (e) => { if (e.key === 'Enter') saveKey(); };
+        }
+        initApp();
     </script>
 </body>
 </html>

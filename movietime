@@ -52,6 +52,8 @@ ACCESS_TOKEN = None
 
 @app.before_request
 def check_access():
+    if request.path in ('/api/tmdb/status', '/api/tmdb/key'):
+        return None
     token = request.args.get('token') or request.cookies.get('access_token')
     if token != ACCESS_TOKEN:
         return jsonify({"error": "unauthorized"}), 403
@@ -1355,6 +1357,23 @@ def apply_sequential_priority(handle):
 
     return True
 
+@app.route("/api/tmdb/status")
+def api_tmdb_status():
+    return jsonify({"configured": TMDB_API_KEY is not None and len(TMDB_API_KEY) > 0})
+
+@app.route("/api/tmdb/key", methods=["POST"])
+def api_tmdb_key():
+    global TMDB_API_KEY
+    data = request.get_json(silent=True) or {}
+    key = (data.get("key") or "").strip()
+    if not key:
+        return jsonify({"error": "no key provided"}), 400
+    env_path = os.path.join(SCRIPT_DIR, ".tmdb")
+    with open(env_path, "w") as f:
+        f.write(key)
+    TMDB_API_KEY = key
+    return jsonify({"ok": True})
+
 @app.route("/")
 def index():
     response = make_response(render_template("index.html"))
@@ -1998,11 +2017,11 @@ def api_status():
 
     return jsonify({"status": "idle", "is_valid": False})
 
-HEADER_MIN_SIZE = 100 * 1024 * 1024  # 100MB minimum
+HEADER_MIN_PERCENT = 0.04  # 4% of file size minimum
 
 @app.route("/api/download/playable")
 def api_download_playable():
-    """Check if download is ready to play: needs metadata + min(100MB, filesize)"""
+    """Check if download is ready to play: needs metadata + 4% of filesize"""
     with download_lock:
         handle = current_download.get("handle")
         if not handle or not handle.is_valid():
@@ -2014,7 +2033,7 @@ def api_download_playable():
         status = handle.status()
         downloaded = status.total_wanted_done
         file_size = status.total_wanted  # actual movie file size
-        min_required = min(HEADER_MIN_SIZE, file_size) if file_size > 0 else HEADER_MIN_SIZE
+        min_required = int(file_size * HEADER_MIN_PERCENT) if file_size > 0 else 0
 
         if downloaded < min_required:
             return jsonify({
@@ -2240,6 +2259,15 @@ def api_open_downloads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/open-url", methods=["POST"])
+def api_open_url():
+    import webbrowser
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "no url provided"}), 400
+    webbrowser.open(url)
+    return jsonify({"status": "ok"})
 
 class MainWindow(QMainWindow):
     """Main window for MovieTime desktop app"""
