@@ -1514,7 +1514,7 @@
                     const progress = parseInt(torrent.progress || 0, 10);
                     const progressEl = existing.querySelector('.res-progress');
                     if (progressEl) {
-                        progressEl.textContent = progress > 0 ? `${progress}%` : '';
+                        progressEl.textContent = torrent.dl_status ? `${progress}%` : (progress > 0 ? `${progress}%` : '');
                     }
                     const progressFill = existing.querySelector('.res-progress-fill');
                     if (progressFill) {
@@ -1562,11 +1562,7 @@
                     const progress = parseInt(torrent.progress || 0, 10);
                     const progressEl = document.createElement('span');
                     progressEl.className = 'res-progress';
-                    if (progress > 0) {
-                        progressEl.textContent = `${progress}%`;
-                    } else {
-                        progressEl.textContent = '';
-                    }
+                    progressEl.textContent = torrent.dl_status ? `${progress}%` : (progress > 0 ? `${progress}%` : '');
 
                     const progressTrack = document.createElement('div');
                     progressTrack.className = 'res-progress-track';
