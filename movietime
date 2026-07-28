@@ -1836,7 +1836,7 @@ def api_torrent():
                     "info_hash": info_hash,
                     "name": name,
                     "resolution": extract_resolution(name),
-                    "seeders": 0,
+                    "seeders": "0",
                     "size": str(status.get("total_bytes") or status.get("downloaded_bytes") or 0),
                     "progress": status.get("progress", 0),
                     "is_playable": status.get("is_playable", False),
