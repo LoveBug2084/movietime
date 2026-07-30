@@ -1778,7 +1778,7 @@
                         if (c.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`)) {
                             const downloaded = data.downloaded_size || 0;
                             const fileSize = parseInt(data.total_size) || 0;
-                            const headerMin = Math.max(Math.floor(fileSize * HEADER_MIN_PERCENT), 10 * 1024 * 1024);
+                            const headerMin = Math.floor(fileSize * HEADER_MIN_PERCENT);
                             let displayPercent;
                             if (downloaded < headerMin) {
                                 displayPercent = Math.min(100, Math.floor((downloaded / headerMin) * 100));
@@ -2028,7 +2028,7 @@
                 const downloaded = data.downloaded_size;
                 const isValid = data.is_valid;
                 const fileSize = parseInt(data.total_size) || 0;
-                const headerMin = Math.max(Math.floor(fileSize * HEADER_MIN_PERCENT), 10 * 1024 * 1024);
+                const headerMin = Math.floor(fileSize * HEADER_MIN_PERCENT);
 
                 let displayPercent;
                 if (downloaded < headerMin) {
@@ -2125,25 +2125,25 @@
         
         async function checkPlayable() {
             try {
+                const playableResp = await fetch('/api/download/playable');
+                const playableData = await playableResp.json();
+                if (!playableData.playable) return;
+
+                document.querySelectorAll('.movie-card.playable').forEach(c => {
+                    c.classList.remove('playable');
+                });
+
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
-                const canPlay = data.status === 'ready' ||
-                    (data.status === 'downloading' && data.is_valid && (data.downloaded_size || 0) >= Math.max(Math.floor((parseInt(data.total_size) || 0) * HEADER_MIN_PERCENT), 10 * 1024 * 1024));
-                if (canPlay) {
-                    document.querySelectorAll('.movie-card.playable').forEach(c => {
-                        c.classList.remove('playable');
+                if (data.info_hash) {
+                    const cards = document.querySelectorAll('.movie-card');
+                    cards.forEach(card => {
+                        if (card.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`) &&
+                            (!data.tmdb_id || !card.dataset.movieId || String(data.tmdb_id) === String(card.dataset.movieId))) {
+                            card.classList.add('playable');
+                        }
                     });
-
-                    if (data.info_hash) {
-                        const cards = document.querySelectorAll('.movie-card');
-                        cards.forEach(card => {
-                            if (card.querySelector(`.resolution-item[data-info-hash="${data.info_hash}"]`) &&
-                                (!data.tmdb_id || !card.dataset.movieId || String(data.tmdb_id) === String(card.dataset.movieId))) {
-                                card.classList.add('playable');
-                            }
-                        });
-                    }
                 }
             } catch (e) {}
         }

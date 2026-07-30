@@ -1271,7 +1271,9 @@ def update_active_download_status_loop():
             if last_progress.get(info_hash) != progress or status.state in (lt.torrent_status.seeding, lt.torrent_status.finished):
                 tmdb_id = current_download.get("tmdb_id")
                 video_file = find_video_file(info_hash, tmdb_id)
-                is_playable = is_valid_video_file(video_file) if video_file else False
+                has_metadata = handle.has_metadata()
+                min_required = int(total * HEADER_MIN_PERCENT) if total > 0 and has_metadata else 0
+                is_playable = video_file is not None and has_metadata and is_valid_video_file(video_file) and downloaded >= min_required
                 
                 save_torrent_status(tmdb_id, info_hash, {
                     "progress": int(progress),
