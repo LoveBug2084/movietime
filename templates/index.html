@@ -205,27 +205,6 @@
         .folder-btn:hover {
             background: #555;
         }
-        .quit-btn {
-            background: #e50914;
-            border: none;
-            color: #fff;
-            padding: 0 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 18px;
-            font-weight: bold;
-            min-width: 45px;
-            height: 36px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            line-height: 1;
-            margin-left: 10px;
-            transition: background 0.15s;
-        }
-        .quit-btn:hover {
-            background: #f40612;
-        }
         .sort-bar {
             display: flex;
             align-items: center;
@@ -640,7 +619,6 @@
             <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">R</button>
             <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
             <button class="folder-btn" id="view-toggle-btn" onclick="toggleViewMode()" title="Toggle Library View">📚 All</button>
-            <button class="quit-btn" onclick="quitApp()" title="Quit MovieTime">✕</button>
         </div>
     </div>
     
@@ -1763,6 +1741,11 @@
                                 }
                                 if (text) text.textContent = displayPercent + '%';
                             }
+                            const cachedTorrent = findCachedTorrent(c, data.info_hash);
+                            if (cachedTorrent) {
+                                cachedTorrent.dl_status = 'downloading';
+                                cachedTorrent.progress = displayPercent;
+                            }
                             break;
                         }
                     }
@@ -1790,6 +1773,13 @@
             } catch (e) {}
         }
         
+        function findCachedTorrent(card, infoHash) {
+            const movie = displayMovies.find(m => String(m.id) === String(card.dataset.movieId));
+            if (!movie) return null;
+            const arr = torrentCache[getMovieUniqueKey(movie)] || [];
+            return arr.find(t => t.info_hash === infoHash) || null;
+        }
+
         async function startTorrent(torrent, card) {
             const { info_hash, magnet, name } = torrent;
 
@@ -1861,6 +1851,12 @@
                         listEl.prepend(resItem);
                         listEl.scrollTop = 0;
                     }
+                }
+
+                const cachedTorrent = findCachedTorrent(card, info_hash);
+                if (cachedTorrent) {
+                    cachedTorrent.dl_status = 'downloading';
+                    cachedTorrent.progress = cachedTorrent.progress || 1;
                 }
             } catch (e) {
                 console.error('Fetch error:', e);
@@ -1950,6 +1946,13 @@
                     item.title = 'Ready to play';
                 });
 
+                const cachedTorrent = findCachedTorrent(card, expectedInfoHash);
+                if (cachedTorrent) {
+                    cachedTorrent.dl_status = '';
+                    cachedTorrent.progress = 100;
+                    cachedTorrent.is_playable = true;
+                }
+
                 const libResp = await fetch('/api/downloads/list');
                 libraryMovies = await libResp.json();
                 await enrichLibraryMovies();
@@ -1988,6 +1991,13 @@
                         fill.classList.remove('phase1', 'phase2', 'completed');
                     }
                 });
+
+                const cancelledTorrent = findCachedTorrent(card, expectedInfoHash);
+                if (cancelledTorrent) {
+                    cancelledTorrent.dl_status = '';
+                    cancelledTorrent.progress = 0;
+                    cancelledTorrent.is_playable = false;
+                }
             } else if (data.downloaded_size !== undefined) {
                 const downloaded = data.downloaded_size;
                 const isValid = data.is_valid;
@@ -2025,6 +2035,12 @@
                         isStreaming = true;
                         startPlayback(expectedInfoHash);
                     }
+                }
+
+                const progressTorrent = findCachedTorrent(card, expectedInfoHash);
+                if (progressTorrent) {
+                    progressTorrent.dl_status = 'downloading';
+                    progressTorrent.progress = displayPercent;
                 }
             }
         }
@@ -2274,9 +2290,6 @@
             } catch (e) {
                 console.error('Open downloads error:', e);
             }
-        }
-        function quitApp() {
-            fetch('/api/quit', { method: 'POST' });
         }
         // Initialize - loads movies and library data before rendering
         function updateMovieCountDisplay() {
