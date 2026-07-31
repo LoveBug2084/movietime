@@ -110,6 +110,10 @@ sync_stop_event = threading.Event()
 sync_thread = None
 movie_ids = set()  # O(1) deduplication
 movie_count = 0  # Track total movie count for incremental sync
+movie_db = []  # In-memory copy of the movie database for fast filtering/pagination
+movie_by_id = {}  # id -> movie object index for fast lookups (same references as movie_db)
+movie_db_lock = threading.Lock()  # Protects the in-memory movie list
+movie_db_load_lock = threading.Lock()  # Ensures the in-memory DB is loaded only once
 
 new_movies_lock = threading.Lock()  # Protect new_movies file operations
 db_lock = threading.Lock()  # Protect main database file operations (active/building swap)
@@ -180,8 +184,8 @@ def ensure_new_movies_files():
                 dst.write(src.read())
 
 def load_movies_from_cache():
-    """Load movies from cache file and populate movie_ids set"""
-    global movie_ids, movie_count
+    """Load movies from cache file and populate movie_ids set and in-memory movie_db"""
+    global movie_ids, movie_count, movie_db
     
     ensure_database_files()
     recover_from_corruption()
@@ -190,6 +194,9 @@ def load_movies_from_cache():
     if active_movies:
         movie_ids = {m["id"] for m in active_movies if "id" in m}
         movie_count = len(active_movies)
+        with movie_db_lock:
+            movie_db.clear()
+            movie_db.extend(active_movies)
         print(f"Loaded {len(active_movies)} movies from cache, {len(movie_ids)} unique IDs")
         return active_movies
     
@@ -197,11 +204,47 @@ def load_movies_from_cache():
     if building_movies:
         movie_ids = {m["id"] for m in building_movies if "id" in m}
         movie_count = len(building_movies)
+        with movie_db_lock:
+            movie_db.clear()
+            movie_db.extend(building_movies)
         print(f"Loaded {len(building_movies)} movies from building, {len(movie_ids)} unique IDs")
         return building_movies
     
     movie_count = 0
+    with movie_db_lock:
+        movie_db.clear()
     return []
+
+def ensure_movie_db():
+    """Lazily load the movie database into memory exactly once. Returns the in-memory list."""
+    global movie_db, movie_by_id, movie_ids, movie_count
+    with movie_db_lock:
+        if movie_db:
+            return movie_db
+    with movie_db_load_lock:
+        with movie_db_lock:
+            if movie_db:
+                return movie_db
+        ensure_database_files()
+        recover_from_corruption()
+        loaded = load_json_file(CACHE_FILE)
+        if not loaded:
+            loaded = load_json_file(BUILDING_FILE)
+        if loaded:
+            with movie_db_lock:
+                if not movie_db:
+                    movie_db.extend(loaded)
+                    movie_ids = {m["id"] for m in loaded if "id" in m}
+                    movie_by_id = {m["id"]: m for m in loaded if "id" in m}
+                    movie_count = len(loaded)
+            print(f"Loaded {len(loaded)} movies into memory")
+    return movie_db
+
+def snapshot_movie_db():
+    """Ensure the in-memory DB is loaded, then return a copy of the movie list."""
+    ensure_movie_db()
+    with movie_db_lock:
+        return list(movie_db)
 
 def load_sync_state():
     """Load sync state from file"""
@@ -275,6 +318,31 @@ def load_json_file(filepath):
         print(f"Skipped {bad_lines} bad lines in {filepath}")
     return movies
 
+def last_line_is_valid(filepath):
+    """Cheap check: verify the last line of a file parses as JSON.
+
+    Reads only the final chunk of the file instead of the whole thing, so it
+    can run on every sync iteration without the full-file parse cost.
+    """
+    if not os.path.exists(filepath):
+        return False
+    try:
+        size = os.path.getsize(filepath)
+        if size == 0:
+            return True
+        chunk = min(size, 65536)
+        with open(filepath, "rb") as f:
+            f.seek(size - chunk)
+            tail = f.read().decode("utf-8", errors="replace")
+        idx = tail.rfind("\n")
+        last = tail[idx + 1:].strip() if idx != -1 else tail.strip()
+        if not last:
+            return True
+        json.loads(last)
+        return True
+    except Exception:
+        return False
+
 def atomic_swap_and_sync():
     """Atomic swap: building → active, active → building, then append new movies to building"""
     ensure_database_files()
@@ -328,7 +396,7 @@ def background_sync():
     global sync_state, movie_ids
     print("Starting background movie sync...")
     
-    load_movies_from_cache()
+    ensure_movie_db()
     load_sync_state()
     print(f"Loaded sync_state: {sync_state}")
 
@@ -337,6 +405,7 @@ def background_sync():
     sync_state["status"] = "running"
     save_sync_state()
     
+    iterations = 0
     while not sync_stop_event.is_set():
         page = sync_state.get("current_page", 1)
         genre_index = sync_state.get("genre_index", 0)
@@ -361,7 +430,7 @@ def background_sync():
             with db_lock:
                 append_to_building(new_movies)
                 
-                if validate_json_file(BUILDING_FILE):
+                if last_line_is_valid(BUILDING_FILE):
                     atomic_swap_and_sync()
                     append_to_building(new_movies)
                 else:
@@ -370,6 +439,9 @@ def background_sync():
             
             global movie_count
             movie_count += len(new_movies)
+            with movie_db_lock:
+                movie_db.extend(new_movies)
+                movie_by_id.update({m["id"]: m for m in new_movies if "id" in m})
 
         genre_index += 1
         if genre_index >= len(GENRE_IDS):
@@ -382,7 +454,9 @@ def background_sync():
         sync_state["current_page"] = page
         sync_state["genre_index"] = genre_index
         sync_state["last_updated"] = time.time()
-        save_sync_state()
+        iterations += 1
+        if iterations % 30 == 0:
+            save_sync_state()
         
         if sync_stop_event.is_set():
             break
@@ -659,6 +733,12 @@ def search_apibay(query, category="all", year=""):
             if not info_hash or len(info_hash) != 40:
                 continue
             
+            try:
+                if int(seeders) <= 0:
+                    continue
+            except ValueError:
+                continue
+            
             if info_hash:
                 magnet = f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
                 score = score_torrent(name, query, year)
@@ -725,7 +805,13 @@ def search_magnetz(query, category="all", year=""):
             
             if not info_hash or len(info_hash) != 40:
                 continue
-                
+            
+            try:
+                if int(seeders) <= 0:
+                    continue
+            except ValueError:
+                continue
+            
             magnet = r.get("magnet_link") or f"magnet:?xt=urn:btih:{info_hash}&dn={name}"
             score = score_torrent(name, query, year)
             size = r.get("size", "0")
@@ -852,7 +938,7 @@ def start_search_background(search_id, query, sort, category, year=""):
     if search_id in active_searches and not search.get("cancelled"):
         rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year=year)
 
-def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False, year=""):
+def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False, year="", genre="", rating=""):
     """Full rebuild with cache + magnetz (skip TMDb if local_only=True, skip cache if external_only=True)"""
     global active_searches
     search = active_searches.get(search_id)
@@ -863,15 +949,14 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
     
     # Search local cache - skip if external_only is True
     if not external_only:
-        cache_data = load_cached_movies()
-        if cache_data:
-            all_movies = cache_data.get("movies", [])
-            query_lower = query.lower()
-            for m in all_movies:
-                title = m.get("title", "")
-                if query_lower in title.lower():
-                    m["search_source"] = "cache"
-                    combined.append(m)
+        all_movies = snapshot_movie_db()
+        query_lower = query.lower()
+        for m in all_movies:
+            title = m.get("title", "")
+            if query_lower in title.lower():
+                copy = dict(m)
+                copy["search_source"] = "cache"
+                combined.append(copy)
 
 
     # Only fetch TMDb if not local_only (cache already has TMDb data)
@@ -923,6 +1008,21 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
     elif sort == "description":
         query_lower = query.lower()
         combined = [m for m in combined if query_lower in (m.get("overview") or "").lower()]
+
+    try:
+        genre_id = int(genre) if genre else None
+    except:
+        genre_id = None
+    min_rating = None
+    rating_none = rating == "none"
+    if rating and not rating_none:
+        try:
+            min_rating = float(rating)
+        except:
+            min_rating = None
+    if genre_id or min_rating is not None or rating_none:
+        combined = filter_movies(combined, genre_id=genre_id, min_rating=min_rating,
+                                 rating_none=rating_none, year="", query="")
 
     with search["lock"]:
         search["combined"] = combined
@@ -1383,40 +1483,67 @@ def index():
         response.set_cookie('access_token', ACCESS_TOKEN, httponly=True, samesite='Strict')
     return response
 
+def filter_movies(movies, genre_id=None, min_rating=None, rating_none=False, year="", query=""):
+    """Filter a movie list by genre, rating, year, and title query (same rules the UI applied client-side)"""
+    result = []
+    query_lower = query.lower() if query else ""
+    for m in movies:
+        if genre_id and m.get("genre_ids") and genre_id not in m["genre_ids"]:
+            continue
+        r = m.get("rating")
+        if rating_none:
+            if r and r != "None" and r != 0:
+                continue
+        elif min_rating is not None:
+            if not r or r == "None" or float(r) < min_rating:
+                continue
+        if year and m.get("year") != year:
+            continue
+        if query_lower and query_lower not in (m.get("title") or "").lower():
+            continue
+        result.append(m)
+    return result
+
 @app.route("/api/popular")
 def api_popular():
-    """Get popular movies - uses cache if available, with pagination (100 per page)"""
-    page = request.args.get("page", "1")
+    """Get movies paginated (100 per page) from the in-memory database, with optional filters"""
     try:
-        page = int(page)
+        page = int(request.args.get("page", "1"))
     except:
         page = 1
+    genre = request.args.get("genre", "").strip()
+    rating = request.args.get("rating", "").strip()
+    year = request.args.get("year", "").strip()
+    query = request.args.get("q", "").strip()
 
-    cache_data = load_cached_movies()
+    try:
+        genre_id = int(genre) if genre else None
+    except:
+        genre_id = None
+    min_rating = None
+    rating_none = rating == "none"
+    if rating and not rating_none:
+        try:
+            min_rating = float(rating)
+        except:
+            min_rating = None
 
-    if cache_data:
-        all_movies = cache_data.get("movies", [])
-        total_movies = len(all_movies)
-        total_pages = (total_movies + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
+    all_movies = snapshot_movie_db()
 
-        start_idx = (page - 1) * MOVIES_PER_PAGE
-        end_idx = start_idx + MOVIES_PER_PAGE
-        page_movies = all_movies[start_idx:end_idx]
+    filtered = filter_movies(all_movies, genre_id=genre_id, min_rating=min_rating,
+                             rating_none=rating_none, year=year, query=query)
 
-        return jsonify({
-            "movies": page_movies,
-            "page": page,
-            "total_pages": total_pages,
-            "cached": True,
-            "total_movies": total_movies
-        })
+    total_movies = len(filtered)
+    total_pages = (total_movies + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
+    start_idx = (page - 1) * MOVIES_PER_PAGE
+    end_idx = start_idx + MOVIES_PER_PAGE
 
     return jsonify({
-        "movies": [],
-        "page": 1,
-        "total_pages": 0,
-        "cached": False,
-        "total_movies": 0
+        "movies": filtered[start_idx:end_idx],
+        "page": page,
+        "total_pages": total_pages,
+        "cached": True,
+        "total_movies": total_movies
     })
 
 @app.route("/api/movies/count")
@@ -1465,14 +1592,16 @@ def api_movies_all():
         if new_movies_data:
             with db_lock:
                 append_to_building(new_movies_data)
-                if validate_json_file(BUILDING_FILE):
+                if last_line_is_valid(BUILDING_FILE):
                     atomic_swap_and_sync()
                     append_to_building(new_movies_data)
                 else:
                     recover_from_corruption()
             
-            main_movies = load_json_file(CACHE_FILE)
-            total_in_database = len(main_movies) if main_movies else 0
+            with movie_db_lock:
+                movie_db.extend(new_movies_data)
+                movie_by_id.update({m["id"]: m for m in new_movies_data if "id" in m})
+                total_in_database = len(movie_db)
         
         with open(NEW_MOVIES_BUILDING, "w") as f:
             pass
@@ -1491,7 +1620,10 @@ def api_search():
     sort = request.args.get("sort", "all").strip()
     category = request.args.get("category", "all").strip()
     page = request.args.get("page", "1").strip()
+    genre = request.args.get("genre", "").strip()
+    rating = request.args.get("rating", "").strip()
     external_only = request.args.get("external_only", "0") == "1"
+    include_combined = request.args.get("include_combined", "0") == "1"
     try:
         page = int(page)
     except:
@@ -1550,8 +1682,7 @@ def api_search():
     # Get total database count - skip if external_only
     total_database = 0
     if not external_only:
-        cache_data = load_cached_movies()
-        total_database = len(cache_data.get("movies", [])) if cache_data else 0
+        total_database = len(snapshot_movie_db())
     
     # Cancel any previous active searches (frontend should handle this, but safety net)
     for sid in list(active_searches.keys()):
@@ -1597,7 +1728,7 @@ def api_search():
             search["combined"] = []
     
     # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year)
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year, genre=genre, rating=rating)
     
     with active_searches[search_id]["lock"]:
         search = active_searches[search_id]
@@ -1619,7 +1750,7 @@ def api_search():
         "pages_fetched": pages_fetched,
         "done": done,
         "streaming": True,
-        "combined": combined_results,
+        "combined": combined_results if include_combined else [],
         "sources": {
             "cache": 0,
             "tmdb": total_results,
@@ -1692,6 +1823,7 @@ def api_search_cancel():
 @app.route("/api/downloads/list")
 def api_downloads_list():
     """List all movies with downloads, grouped by tmdb_id with all resolutions"""
+    ensure_movie_db()
     if not os.path.exists(DOWNLOAD_DIR):
         return jsonify([])
 
@@ -1742,6 +1874,14 @@ def api_downloads_list():
                 key = info_hash
             if key not in movies:
                 movie_entry = {"id": tmdb_id or info_hash, "resolutions": [], "last_updated": last_updated, "title": status.get("name", tmdb_str)}
+                cached = movie_by_id.get(str(tmdb_id)) if tmdb_id else None
+                if cached:
+                    movie_entry["title"] = cached.get("title", movie_entry["title"])
+                    movie_entry["poster"] = cached.get("poster", "")
+                    movie_entry["year"] = cached.get("year", "")
+                    movie_entry["rating"] = cached.get("rating", None)
+                    movie_entry["overview"] = cached.get("overview", "")
+                    movie_entry["genre_ids"] = cached.get("genre_ids", [])
                 movies[key] = movie_entry
 
             movies[key]["resolutions"].append(entry)

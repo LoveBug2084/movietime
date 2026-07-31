@@ -1,0 +1,2 @@
+movietime is a torrent downloader and player application for linux
+there is a python backend file "movietime" and a frontend html javascript file "templates/index.html"
