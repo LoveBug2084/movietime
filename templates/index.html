@@ -539,15 +539,12 @@
             position: relative;
         }
         .no-image-text::after {
-            content: 'No Image';
+            content: '🍿';
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: #fff;
-            font-weight: bold;
-            font-size: 14px;
-            white-space: nowrap;
+            font-size: 80px;
         }
         .notification {
             position: fixed;
@@ -1382,6 +1379,8 @@
                 }
 
                 grid.appendChild(card);
+                const noImgEl = card.querySelector('.no-image-text');
+                if (noImgEl) noImgEl.style.fontSize = Math.round(card.offsetWidth / 2) + 'px';
             }
             
             // Re-enable progress polling on the new card if a download was in progress
