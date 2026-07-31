@@ -529,19 +529,22 @@
         .movie-card:hover .description {
             opacity: 1;
         }
-        .placeholder-thumb {
+        .no-image-text {
             width: 100%;
             padding-top: 150%;
-            background: #333;
+            background: #0000ff;
             position: relative;
         }
-        .placeholder-thumb::after {
-            content: '🎬';
+        .no-image-text::after {
+            content: 'No Image';
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 60px;
+            color: #fff;
+            font-weight: bold;
+            font-size: 14px;
+            white-space: nowrap;
         }
         .notification {
             position: fixed;
@@ -1279,11 +1282,9 @@
                     
                     let posterHtml;
                     if (movie.poster) {
-                        posterHtml = `<img src="${movie.poster}" alt="${movie.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="placeholder-thumb" style='display:none'></div>`;
-                    } else if (movie.name) {
-                        posterHtml = `<div class="placeholder-thumb"></div>`;
+                        posterHtml = `<img src="${movie.poster}" alt="${movie.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="no-image-text" style='display:none'></div>`;
                     } else {
-                        posterHtml = `<div class="placeholder-thumb"></div>`;
+                        posterHtml = `<div class="no-image-text"></div>`;
                     }
                     
                     const rating = movie.rating ? Math.round(movie.rating / 2) : 0;
