@@ -49,6 +49,7 @@ import libtorrent as lt
 app = Flask(__name__, template_folder=os.path.join(SCRIPT_DIR, "templates"))
 
 ACCESS_TOKEN = None
+shutdown_requested = threading.Event()
 
 @app.before_request
 def check_access():
@@ -2416,6 +2417,12 @@ def api_open_url():
     webbrowser.open(url)
     return jsonify({"status": "ok"})
 
+@app.route("/api/quit", methods=["POST"])
+def api_quit():
+    """Quit the desktop app"""
+    shutdown_requested.set()
+    return jsonify({"status": "ok"})
+
 class MainWindow(QMainWindow):
     """Main window for MovieTime desktop app"""
     
@@ -2484,8 +2491,7 @@ def main():
     """Entry point for desktop app"""
     import sys
     import signal
-    global sync_thread, ACCESS_TOKEN
-
+    global sync_thread, ACCESS_TOKEN, shutdown_requested
     ACCESS_TOKEN = secrets.token_hex(32)
 
     flask_thread = threading.Thread(target=run_flask, daemon=True)
@@ -2505,9 +2511,7 @@ def main():
     app.setApplicationName("MovieTime")
 
     window = MainWindow()
-    window.showMaximized()
-
-    shutdown_requested = threading.Event()
+    window.showFullScreen()
 
     def handle_signal(signum, frame):
         shutdown_requested.set()

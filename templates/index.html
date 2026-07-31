@@ -205,6 +205,27 @@
         .folder-btn:hover {
             background: #555;
         }
+        .quit-btn {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 0 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            min-width: 45px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            margin-left: 10px;
+            transition: background 0.15s;
+        }
+        .quit-btn:hover {
+            background: #f40612;
+        }
         .sort-bar {
             display: flex;
             align-items: center;
@@ -619,6 +640,7 @@
             <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">R</button>
             <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
             <button class="folder-btn" id="view-toggle-btn" onclick="toggleViewMode()" title="Toggle Library View">📚 All</button>
+            <button class="quit-btn" onclick="quitApp()" title="Quit MovieTime">✕</button>
         </div>
     </div>
     
@@ -2252,6 +2274,9 @@
             } catch (e) {
                 console.error('Open downloads error:', e);
             }
+        }
+        function quitApp() {
+            fetch('/api/quit', { method: 'POST' });
         }
         // Initialize - loads movies and library data before rendering
         function updateMovieCountDisplay() {
