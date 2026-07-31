@@ -1202,7 +1202,20 @@
                     // Refresh resolution list in-place
                     const listEl = card.querySelector('.resolution-list');
 
-                    if (movie.resolutions && movie.resolutions.length > 0) {
+                    if (movie.magnet && movie.info_hash) {
+                        updateCardWithTorrent(card, [{
+                            resolution: movie.resolution || '',
+                            size: movie.size || '0',
+                            seeders: movie.seeders || '',
+                            info_hash: movie.info_hash || '',
+                            magnet: movie.magnet || '',
+                            name: movie.name || title,
+                            progress: movie.progress || 0,
+                            is_playable: movie.is_playable || false,
+                            dl_status: movie.dl_status || '',
+                            source: movie.source || '',
+                        }]);
+                    } else if (movie.resolutions && movie.resolutions.length > 0) {
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
                             resolution: r.resolution || '',
                             size: r.size || '0',
@@ -1234,7 +1247,7 @@
                     // Re-attach hover for non-downloaded
                     card.onmouseenter = null;
                     card.onmouseleave = null;
-                    if (movie.seeders || movie.poster) {
+                    if ((movie.seeders || movie.poster) && !movie.magnet) {
                         card.dataset.movieTitle = title;
                         const movieKey = getMovieUniqueKey(movie);
                         card.onmouseenter = () => setupTorrentHover(card, movie);
@@ -1317,7 +1330,20 @@
                     card.dataset.source = source;
                     card.dataset.movieTitle = title;
                     
-                    if (movie.resolutions && movie.resolutions.length > 0) {
+                    if (movie.magnet && movie.info_hash) {
+                        updateCardWithTorrent(card, [{
+                            resolution: movie.resolution || '',
+                            size: movie.size || '0',
+                            seeders: movie.seeders || '',
+                            info_hash: movie.info_hash || '',
+                            magnet: movie.magnet || '',
+                            name: movie.name || title,
+                            progress: movie.progress || 0,
+                            is_playable: movie.is_playable || false,
+                            dl_status: movie.dl_status || '',
+                            source: movie.source || '',
+                        }]);
+                    } else if (movie.resolutions && movie.resolutions.length > 0) {
                         updateCardWithTorrent(card, movie.resolutions.map(r => ({
                             resolution: r.resolution || '',
                             size: r.size || '0',
@@ -1340,7 +1366,7 @@
                         };
                     }
 
-                    if (movie.seeders || movie.poster) {
+                    if ((movie.seeders || movie.poster) && !movie.magnet) {
                          const movieKey = getMovieUniqueKey(movie);
                          card.onmouseenter = () => setupTorrentHover(card, movie);
                          card.onmouseleave = () => clearTorrentHover(movieKey);
