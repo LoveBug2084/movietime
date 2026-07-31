@@ -103,21 +103,6 @@
         #movie-count {
             text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
         }
-        .loading-bar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 0%;
-            height: 3px;
-            z-index: 1000;
-            opacity: 0;
-            transition: opacity 0.2s, width 0.15s;
-            pointer-events: none;
-            background: #e50914;
-        }
-        .loading-bar.visible {
-            opacity: 1;
-        }
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -641,8 +626,6 @@
         <div class="grid" id="grid"></div>
     </div>
     
-    <div class="loading-bar" id="loading-bar"></div>
-    
     <div class="modal-overlay" id="modal-overlay">
         <div class="modal-box">
             <button class="modal-close" id="modal-close">✕</button>
@@ -693,57 +676,12 @@
         let lastTotalMovies = 0;
         let cardMap = new Map(); // movie_id → card DOM element
         
-        function showLoading(pct = 0) {
-            const bar = document.getElementById('loading-bar');
-            bar.classList.add('visible');
-            bar.style.width = pct + '%';
-            document.getElementById('movie-count').textContent = 'Loading... ' + pct + '%';
-        }
-        function setProgress(pct) {
-            document.getElementById('loading-bar').style.width = pct + '%';
-            document.getElementById('movie-count').textContent = 'Loading... ' + pct + '%';
+        function showLoading() {
+            document.getElementById('movie-count').textContent = 'Loading...';
         }
         function yieldToUI() {
             return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         }
-        async function fetchWithProgress(url) {
-            const resp = await fetch(url);
-            const contentLength = parseInt(resp.headers.get('Content-Length') || '0');
-            const reader = resp.body.getReader();
-            const chunks = [];
-            let received = 0;
-            let lastYield = 0;
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                received += value.length;
-                const now = performance.now();
-                if (contentLength > 0 && now - lastYield >= 100) {
-                    setProgress(Math.round((received / contentLength) * 100));
-                    await yieldToUI();
-                    lastYield = now;
-                }
-            }
-            const allBytes = new Uint8Array(received);
-            let offset = 0;
-            for (const chunk of chunks) {
-                allBytes.set(chunk, offset);
-                offset += chunk.length;
-            }
-            const bar = document.getElementById('loading-bar');
-            bar.style.transition = 'opacity 0.2s';
-            setProgress(100);
-            await yieldToUI();
-            bar.style.transition = '';
-            return JSON.parse(new TextDecoder().decode(allBytes));
-        }
-        function hideLoading() {
-            const bar = document.getElementById('loading-bar');
-            bar.classList.remove('visible');
-            bar.style.width = '0%';
-        }
-
         function showDeleteConfirm(card, movie) {
             const overlay = document.getElementById('modal-overlay');
             const msg = document.getElementById('modal-message');
@@ -880,7 +818,7 @@
         }
 
         async function refreshDatabase() {
-            showLoading(0);
+            showLoading();
             document.querySelector('.refresh-btn').classList.remove('has-updates');
 
             const [moviesData, libData] = await Promise.all([
@@ -900,7 +838,6 @@
             await enrichLibraryMovies();
 
             applyCurrentView();
-            hideLoading();
         }
 
         const grid = document.getElementById('grid');
@@ -1043,9 +980,8 @@
         }
         
         async function loadAll(page = 1) {
-            showLoading(0);
+            showLoading();
             if (viewMode === 'downloaded') {
-                hideLoading();
                 applyCurrentView();
                 return;
             }
@@ -1081,7 +1017,6 @@
             currentMovies = displayMovies;
             renderMovies(displayMovies, 'popular');
             updatePagination(currentTotalPages);
-            hideLoading();
         }
         
         
