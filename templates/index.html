@@ -415,25 +415,35 @@
           .movie-card .resolution-item:hover {
             background: #444;
         }
-        .movie-card .resolution-item [data-tooltip] {
-            position: relative;
+        #startup-loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(17, 17, 17, 0.9);
+            z-index: 9000;
+            color: #fff;
+            font-weight: bold;
         }
-        .movie-card .resolution-item [data-tooltip]:hover::after {
-            content: attr(data-tooltip);
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
+        #startup-loading span {
+            font-size: 100px;
+            white-space: nowrap;
+        }
+        #global-tooltip {
+            position: fixed;
+            z-index: 9999;
+            pointer-events: none;
             background: #333;
             color: #ddd;
             padding: 4px 8px;
             border-radius: 4px;
-            font-size: 11px;
-            white-space: normal;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: pre-line;
             max-width: 250px;
-            z-index: 10;
-            pointer-events: none;
             box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            display: none;
         }
         .movie-card .resolution-item .res-label {
             color: #ffff00;
@@ -612,13 +622,13 @@
             </div>
             <div class="pagination" id="pagination">
                 <span id="movie-count" style="margin-right: 15px;">Loading...</span>
-                <button id="prev-btn" onclick="changePage(-1)" title="Previous page">◀</button>
+                <button id="prev-btn" onclick="changePage(-1)" data-tooltip="Previous page">◀</button>
                 <span id="page-info">Page 1</span>
-                <button id="next-btn" onclick="changePage(1)" title="Next page">▶</button>
+                <button id="next-btn" onclick="changePage(1)" data-tooltip="Next page">▶</button>
             </div>
-            <button class="refresh-btn" onclick="refreshDatabase()" title="Refresh database">R</button>
-            <button class="folder-btn" onclick="openDownloadsFolder()" title="Open downloads folder">📁</button>
-            <button class="folder-btn" id="view-toggle-btn" onclick="toggleViewMode()" title="Toggle Library View">📚 All</button>
+            <button class="refresh-btn" onclick="refreshDatabase()" data-tooltip="Refresh database">R</button>
+            <button class="folder-btn" onclick="openDownloadsFolder()" data-tooltip="Open downloads folder">📁</button>
+            <button class="folder-btn" id="view-toggle-btn" onclick="toggleViewMode()" data-tooltip="Toggle Downloads View">📚 All</button>
         </div>
     </div>
     
@@ -648,6 +658,10 @@
             </div>
         </div>
     </div>
+
+    <div id="global-tooltip"></div>
+
+    <div id="startup-loading"><span id="startup-loading-text">Loading...</span></div>
     
     <script>
         let currentMovies = [];
@@ -675,7 +689,48 @@
         let currentFilterPrefix = '';
         let lastTotalMovies = 0;
         let cardMap = new Map(); // movie_id → card DOM element
-        
+
+        const globalTooltip = document.getElementById('global-tooltip');
+
+        const startupLoadingText = document.getElementById('startup-loading-text');
+        function fitStartupLoading() {
+            if (!startupLoadingText) return;
+            startupLoadingText.style.fontSize = '100px';
+            const width = startupLoadingText.offsetWidth;
+            if (width > 0) {
+                startupLoadingText.style.fontSize = Math.round(window.innerWidth * 0.25 * 100 / width) + 'px';
+            }
+        }
+        fitStartupLoading();
+
+        document.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('[data-tooltip]');
+            if (!target) return;
+            globalTooltip.textContent = target.dataset.tooltip.replace(/[^a-zA-Z0-9\n]/g, ' ');
+            globalTooltip.style.display = 'block';
+            positionTooltip(e);
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (globalTooltip.style.display === 'block') positionTooltip(e);
+        });
+        document.addEventListener('mouseout', (e) => {
+            const related = e.relatedTarget;
+            if (related && related.closest && related.closest('[data-tooltip]')) return;
+            globalTooltip.style.display = 'none';
+        });
+        function positionTooltip(e) {
+            const offset = 12;
+            const tooltip = globalTooltip;
+            const tooltipWidth = tooltip.offsetWidth;
+            const tooltipHeight = tooltip.offsetHeight;
+            let x = e.clientX + offset;
+            let y = e.clientY + offset;
+            if (x + tooltipWidth > window.innerWidth) x = e.clientX - tooltipWidth - offset;
+            if (y + tooltipHeight > window.innerHeight) y = e.clientY - tooltipHeight - offset;
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+
         function showLoading() {
             document.getElementById('movie-count').textContent = 'Loading...';
         }
@@ -896,7 +951,7 @@
             const btn = document.getElementById('view-toggle-btn');
             if (viewMode === 'all') {
                 viewMode = 'downloaded';
-                btn.textContent = '📚 Library';
+                btn.textContent = '📚 Downloads';
                 btn.style.background = '#0099ff';
 
                     await loadDownloadedMovies();
@@ -1344,6 +1399,7 @@
             // Check if there's an active download/playback and show play button
             checkPlayable();
             loadDownloads();
+            document.getElementById('startup-loading').style.display = 'none';
         }
         
         function updateCardWithTorrent(card, torrents) {
@@ -1433,7 +1489,7 @@
                 if (existing) {
                     existing.dataset.torrentName = torrent.name || '';
                     const seedersText = torrent.seeders != null ? `${torrent.seeders} seeders` : '';
-                    existing.title = seedersText ? `${seedersText}\n${torrent.name || ''}` : (torrent.name || '');
+                    existing.dataset.tooltip = seedersText ? `${seedersText}\n${torrent.name || ''}` : (torrent.name || '');
 
                     const label = existing.querySelector('.res-label');
                     if (label) {
@@ -1552,7 +1608,7 @@
                     item.appendChild(progressTrack);
 
                     const seedersText = torrent.seeders != null ? `${torrent.seeders} seeders` : '';
-                    item.title = seedersText ? `${seedersText}\n${torrent.name || ''}` : (torrent.name || '');
+                    item.dataset.tooltip = seedersText ? `${seedersText}\n${torrent.name || ''}` : (torrent.name || '');
 
                     item.onclick = (e) => {
                         e.stopPropagation();
@@ -1943,7 +1999,7 @@
                         fill.classList.remove('phase1');
                         fill.classList.add('completed');
                     }
-                    item.title = 'Ready to play';
+                    item.dataset.tooltip = 'Ready to play';
                 });
 
                 const cachedTorrent = findCachedTorrent(card, expectedInfoHash);
@@ -2311,6 +2367,7 @@
             const input = document.getElementById('tmdb-key-input');
             const saveBtn = document.getElementById('tmdb-key-save');
             const errorEl = document.getElementById('tmdb-key-error');
+            document.getElementById('startup-loading').style.display = 'none';
             overlay.classList.add('visible');
             input.focus();
 
