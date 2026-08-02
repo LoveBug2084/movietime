@@ -1169,7 +1169,6 @@
                     card = existingCard;
 
                     // Update dataset attributes
-                    card.dataset.source = source;
                     card.dataset.movieId = movie.id;
                     card.dataset.movieTitle = title;
                     card.dataset.movieYear = year || '';
@@ -1300,7 +1299,6 @@
                     if (movie.id) {
                         card.dataset.movieId = movie.id;
                     }
-                    card.dataset.source = source;
                     card.dataset.movieTitle = title;
                     
                     if (movie.magnet && movie.info_hash) {
@@ -1547,13 +1545,15 @@
                             startTorrent(torrent, card);
                         }
                     };
-                    if (card.dataset.source === 'downloaded') {
+                    if (viewMode === 'downloaded') {
                         existing.oncontextmenu = (e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             const movie = libraryMovies.find(m => String(m.id) === String(card.dataset.movieId));
                             if (movie) showDeleteTorrentConfirm(card, existing, movie);
                         };
+                    } else {
+                        existing.oncontextmenu = null;
                     }
                 } else {
                     const item = document.createElement('div');
@@ -1620,7 +1620,7 @@
                     };
 
                     item.dataset.torrentName = torrent.name || '';
-                    if (card.dataset.source === 'downloaded') {
+                    if (viewMode === 'downloaded') {
                         item.oncontextmenu = (e) => {
                             e.preventDefault();
                             e.stopPropagation();
