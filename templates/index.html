@@ -1693,6 +1693,40 @@
             return merged;
         }
 
+        async function overlayLivePlayable(torrents) {
+            if (!torrents || !torrents.length) return;
+            const playableByHash = {};
+            try {
+                const libResp = await fetch('/api/downloads/list');
+                if (libResp.ok) {
+                    const lib = await libResp.json();
+                    (lib || []).forEach(m => {
+                        (m.resolutions || []).forEach(r => {
+                            if (r.info_hash) playableByHash[r.info_hash] = !!r.is_playable;
+                        });
+                    });
+                }
+            } catch (e) {}
+            try {
+                const statusResp = await fetch('/api/status');
+                if (statusResp.ok) {
+                    const data = await statusResp.json();
+                    if (data.info_hash && data.status === 'downloading') {
+                        const playResp = await fetch('/api/download/playable');
+                        if (playResp.ok) {
+                            const playableData = await playResp.json();
+                            if (playableData.playable) playableByHash[data.info_hash] = true;
+                        }
+                    }
+                }
+            } catch (e) {}
+            torrents.forEach(t => {
+                if (t.info_hash && playableByHash[t.info_hash] !== undefined) {
+                    t.is_playable = playableByHash[t.info_hash];
+                }
+            });
+        }
+
         function setupTorrentHover(card, movie) {
             const title = movie.title || movie.name || '';
             const year = movie.year || '';
@@ -1704,7 +1738,9 @@
             
                 hoverTimeouts[key] = setTimeout(() => {
                     if (torrentCache[key] && torrentCache[key].length > 0 && torrentCache[key][0].size !== undefined) {
-                        updateCardWithTorrent(card, torrentCache[key]);
+                        overlayLivePlayable(torrentCache[key])
+                            .catch(() => {})
+                            .then(() => updateCardWithTorrent(card, torrentCache[key]));
                         return;
                     }
                     
