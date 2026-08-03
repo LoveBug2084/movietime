@@ -13,14 +13,6 @@ def load_env_file():
 
 TMDB_API_KEY = load_env_file()
 
-def load_user_agent():
-    ua_path = os.path.join(SCRIPT_DIR, ".user-agent")
-    if os.path.exists(ua_path):
-        with open(ua_path) as f:
-            return f.read().strip()
-    return ""
-
-USER_AGENT = load_user_agent()
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-gpu-compositing"
 
@@ -650,8 +642,7 @@ def search_apibay(query, category="all", year=""):
 
     try:
         url = f"https://apibay.org/q.php?q={query.replace(' ', '+')}"
-        headers = {"User-Agent": USER_AGENT} if USER_AGENT else {}
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, timeout=10)
         results = resp.json()
         
         if not results or (isinstance(results, list) and len(results) == 0):
@@ -712,8 +703,7 @@ def search_magnetz(query, category="all", year=""):
 
     try:
         url = f"https://magnetz.eu/api/magnets/search?query={query.replace(' ', '+')}"
-        headers = {"User-Agent": USER_AGENT} if USER_AGENT else {}
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, timeout=10)
         data = resp.json()
         
         # API returns {"data": [...]}
@@ -762,102 +752,8 @@ def search_magnetz(query, category="all", year=""):
         return []
 
 
-def search_tmdb_page(query, page):
-    """Fetch a single page of search results"""
-    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}&page={page}"
-    try:
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        return data.get("results", [])
-    except Exception as e:
-        print(f"Error fetching search page {page}: {e}")
-        return []
-
-# Active streaming searches with background fetching
+# Active searches for pagination
 active_searches = {}
-
-def start_search_background(search_id, query, sort, category, year=""):
-    """Background thread that fetches remaining pages for a search"""
-    global active_searches
-    MAX_MOVIES = 500
-    MAX_PAGES = 25
-
-    search = active_searches.get(search_id)
-    if not search:
-        return
-
-    # Fetch page 1 to get total_pages estimate
-    first_page = search_tmdb_page(query, 1)
-    if search.get("cancelled"):
-        return
-    if not first_page:
-        with search["lock"]:
-            search["done"] = True
-        return
-
-    # Process first page
-    for m in first_page:
-        year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
-        movie = {
-            "id": str(m.get("id")),
-            "title": normalize_name(m.get("title")),
-            "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-            "overview": m.get("overview", ""),
-            "year": year_val,
-            "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-            "genre_ids": m.get("genre_ids", []),
-            "source": "tmdb"
-        }
-        with search["lock"]:
-            search["results"].append(movie)
-
-    total_pages_estimate = min(MAX_PAGES, (MAX_MOVIES // 20) + 1)
-    with search["lock"]:
-        search["pages_fetched"] = 1
-        search["total_pages"] = total_pages_estimate
-        search["combined"] = list(search["results"])
-
-    # Fetch remaining pages in batches
-    pages_needed = range(2, total_pages_estimate + 1)
-    batch_size = 5
-    for batch_start in range(0, len(pages_needed), batch_size):
-        if search.get("cancelled"):
-            break
-
-        batch_end = min(batch_start + batch_size, len(pages_needed))
-        batch = pages_needed[batch_start:batch_end]
-
-        futures = {executor.submit(search_tmdb_page, query, page): page for page in batch}
-
-        for future in as_completed(futures):
-            if search.get("cancelled"):
-                break
-            try:
-                results = future.result()
-                for m in results:
-                    year_val = m.get("release_date", "")[:4] if m.get("release_date") else ""
-                    movie = {
-                        "id": str(m.get("id")),
-                        "title": normalize_name(m.get("title")),
-                        "poster": TMDB_IMAGE_BASE + m.get("poster_path") if m.get("poster_path") else None,
-                        "overview": m.get("overview", ""),
-                        "year": year_val,
-                        "rating": round(m.get("vote_average", 0), 1) if m.get("vote_average") else None,
-                        "genre_ids": m.get("genre_ids", []),
-                        "source": "tmdb"
-                    }
-                    with search["lock"]:
-                        search["results"].append(movie)
-                        search["combined"].append(movie)
-                with search["lock"]:
-                    search["pages_fetched"] += 1
-                    search["total_pages"] = max(1, (len(search["combined"]) + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
-            except Exception as e:
-                print(f"Error collecting search results: {e}")
-
-    # Final full rebuild with cache + magnetz + dedup + sort (only once)
-    if search_id in active_searches and not search.get("cancelled"):
-        rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year=year)
 
 def torrent_name_years(name):
     """All 4-digit numbers in the name within [1901, current year]"""
@@ -866,8 +762,8 @@ def torrent_name_years(name):
     current_year = int(time.strftime("%Y"))
     return [py for py in re.findall(r'\d{4}', name) if 1901 <= int(py) <= current_year]
 
-def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only=False, external_only=False, year="", genre="", rating=""):
-    """Full rebuild with cache + magnetz (skip TMDb if local_only=True, skip cache if external_only=True)"""
+def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year="", genre="", rating=""):
+    """Full rebuild with cache + magnetz"""
     global active_searches
     search = active_searches.get(search_id)
     if not search:
@@ -876,26 +772,15 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, lo
     tmdb_entries = []
     external_entries = []
     
-    # Search local cache - skip if external_only is True
-    if not external_only:
-        all_movies = snapshot_movie_db()
-        query_lower = query.lower()
-        for m in all_movies:
-            title = m.get("title", "")
-            if query_lower in title.lower():
-                copy = dict(m)
-                copy["search_source"] = "cache"
-                tmdb_entries.append(copy)
-
-
-    # Only fetch TMDb if not local_only (cache already has TMDb data)
-    if not local_only:
-        with search["lock"]:
-            tmdb_results = list(search["results"])
-
-        for m in tmdb_results:
-            m["search_source"] = "tmdb"
-            tmdb_entries.append(m)
+    # Search local cache
+    all_movies = snapshot_movie_db()
+    query_lower = query.lower()
+    for m in all_movies:
+        title = m.get("title", "")
+        if query_lower in title.lower():
+            copy = dict(m)
+            copy["search_source"] = "cache"
+            tmdb_entries.append(copy)
 
     # Always include external results
     if "external_results" not in search:
@@ -1554,7 +1439,7 @@ def api_movies_all():
 
 @app.route("/api/search")
 def api_search():
-    """Search movies with streaming results - page 1 returned immediately, rest fetched in background"""
+    """Search movies (local cache + magnetz)"""
     query = request.args.get("q", "").strip()
     year = request.args.get("year", "").strip()
     sort = request.args.get("sort", "all").strip()
@@ -1562,8 +1447,6 @@ def api_search():
     page = request.args.get("page", "1").strip()
     genre = request.args.get("genre", "").strip()
     rating = request.args.get("rating", "").strip()
-    external_only = request.args.get("external_only", "0") == "1"
-    include_combined = request.args.get("include_combined", "0") == "1"
     try:
         page = int(page)
     except:
@@ -1580,8 +1463,7 @@ def api_search():
             "page": page,
             "total_pages": total_pages,
             "total_results": total_results,
-            "sources": {"magnetz": total_results},
-            "streaming": False
+            "sources": {"magnetz": total_results}
         })
     
     if not query and not year:
@@ -1595,8 +1477,7 @@ def api_search():
             "page": page,
             "total_pages": total_pages,
             "total_results": total_results,
-            "sources": {"popular": total_results},
-            "streaming": False
+            "sources": {"popular": total_results}
         })
     
     if not query and year and year.isdigit() and len(year) == 4:
@@ -1610,19 +1491,15 @@ def api_search():
             "page": page,
             "total_pages": total_pages,
             "total_results": total_results,
-            "sources": {"tmdb": total_results},
-            "streaming": False
+            "sources": {"tmdb": total_results}
         })
     
-    # Search - default to local-only (cache + magnetz), skip TMDb
-    local_only = request.args.get("local", "1") != "0"
+    # Search - local-only (cache + magnetz)
     import uuid
     search_id = str(uuid.uuid4())
     
-    # Get total database count - skip if external_only
-    total_database = 0
-    if not external_only:
-        total_database = len(snapshot_movie_db())
+    # Get total database count
+    total_database = len(snapshot_movie_db())
     
     # Cancel any previous active searches (frontend should handle this, but safety net)
     for sid in list(active_searches.keys()):
@@ -1639,36 +1516,15 @@ def api_search():
         "created": time.time()
     }
     
-    # Only fetch TMDb if not local_only
-    if not local_only:
-        # Start background fetcher
-        threading.Thread(
-            target=start_search_background,
-            args=(search_id, query, sort, category, year),
-            daemon=True
-        ).start()
-        
-        # Wait briefly for first page to populate
-        # time.sleep(1.5)
-        
-        with active_searches[search_id]["lock"]:
-            search = active_searches[search_id]
-            pages_fetched = search["pages_fetched"]
-            done = search["done"]
-            combined_results = list(search.get("combined", []))
-    else:
-        # Local-only search: immediately build combined results from cache
-        pages_fetched = 0
-        done = True
-        combined_results = []
-        with active_searches[search_id]["lock"]:
-            search = active_searches[search_id]
-            search["done"] = True
-            # Initialize combined for rebuild_combined_final
-            search["combined"] = []
+    # Local-only search: immediately build combined results from cache
+    with active_searches[search_id]["lock"]:
+        search = active_searches[search_id]
+        search["done"] = True
+        # Initialize combined for rebuild_combined_final
+        search["combined"] = []
     
     # Build final combined results
-    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, local_only, external_only, year=year, genre=genre, rating=rating)
+    rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, year=year, genre=genre, rating=rating)
     
     with active_searches[search_id]["lock"]:
         search = active_searches[search_id]
@@ -1687,10 +1543,6 @@ def api_search():
         "total_results": total_results,
         "total_database": total_database,
         "search_id": search_id,
-        "pages_fetched": pages_fetched,
-        "done": done,
-        "streaming": True,
-        "combined": combined_results if include_combined else [],
         "sources": {
             "cache": 0,
             "tmdb": total_results,
@@ -1732,27 +1584,9 @@ def api_search_page():
         "done": done
     })
 
-@app.route("/api/search/progress")
-def api_search_progress():
-    """Get progress of a streaming search"""
-    search_id = request.args.get("id", "").strip()
-    if not search_id or search_id not in active_searches:
-        return jsonify({"error": "Search not found"}), 404
-
-    search = active_searches[search_id]
-    with search["lock"]:
-        return jsonify({
-            "pages_fetched": search["pages_fetched"],
-            "total_pages": search["total_pages"],
-            "total_results": len(search.get("combined", [])),
-            "done": search["done"],
-            "cancelled": search["cancelled"],
-            "combined": list(search.get("combined", []))
-        })
-
 @app.route("/api/search/cancel", methods=["POST"])
 def api_search_cancel():
-    """Cancel a streaming search"""
+    """Cancel a search"""
     data = request.json
     search_id = data.get("search_id", "").strip()
     if search_id and search_id in active_searches:
