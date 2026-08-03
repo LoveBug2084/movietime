@@ -1294,12 +1294,22 @@ def api_tmdb_key():
     data = request.get_json(silent=True) or {}
     key = (data.get("key") or "").strip()
     if not key:
-        return jsonify({"error": "no key provided"}), 400
+        return jsonify({"error": "No Key Provided"}), 400
+    if not tmdb_key_valid(key):
+        return jsonify({"error": "Invalid TMDB API Key"}), 400
     env_path = os.path.join(SCRIPT_DIR, ".tmdb")
     with open(env_path, "w") as f:
         f.write(key)
     TMDB_API_KEY = key
     return jsonify({"ok": True})
+
+def tmdb_key_valid(key):
+    try:
+        resp = requests.get(f"https://api.themoviedb.org/3/configuration?api_key={key}", timeout=10)
+        data = resp.json()
+        return resp.status_code not in (400, 401) and data.get("status_code") != 7
+    except Exception:
+        return False
 
 @app.route("/")
 def index():
