@@ -1,1 +1,3 @@
-Its a movie player 😉
+# Movie player for linux 😉
+
+![Movie Time](movietime.png)
