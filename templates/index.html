@@ -1756,18 +1756,23 @@
 
                 function onSourceDone(sourceName, data) {
                     sourcesDone++;
+                    function applyTorrents() {
+                        overlayLivePlayable(torrentCache[key])
+                            .catch(() => {})
+                            .then(() => updateCardWithTorrent(card, torrentCache[key]));
+                    }
                     if (data && data.length > 0) {
                         if (!torrentCache[key]) torrentCache[key] = [];
                         torrentCache[key] = mergeTorrents(torrentCache[key], data);
                         gotAnyResults = true;
-                        updateCardWithTorrent(card, torrentCache[key]);
+                        applyTorrents();
                     } else if (sourcesDone >= totalSources && !gotAnyResults) {
                         if (loadingEl) {
                             loadingEl.textContent = 'No torrents';
                             loadingEl.className = 'torrent-status error';
                         }
                     } else if (sourcesDone >= totalSources && gotAnyResults) {
-                        updateCardWithTorrent(card, torrentCache[key]);
+                        applyTorrents();
                     }
                     if (sourcesDone >= totalSources) {
                         pendingFetches[key] = false;
