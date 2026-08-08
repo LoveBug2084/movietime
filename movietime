@@ -814,6 +814,12 @@ def rebuild_combined_final(search_id, query, sort, category, MOVIES_PER_PAGE, ye
         m["year"] = ""
         m["rating"] = None
         m["id"] = f"_{zlib.crc32(title.encode()) & 0xFFFFFFFF:08x}"
+        status = find_torrent_status(m.get("info_hash", ""))
+        if status:
+            m["progress"] = status.get("progress", 0)
+            m["is_playable"] = status.get("is_playable", False)
+            m["dl_status"] = status.get("status", "")
+            m["size"] = str(status.get("total_bytes") or status.get("downloaded_bytes") or m.get("size", "0"))
         external_entries.append(m)
 
     try:
@@ -1465,6 +1471,12 @@ def api_search():
     
     if category in ["tv", "music", "adult", "movies"]:
         all_results = search_apibay(query, category, year) + search_magnetz(query, category, year)
+        for t in all_results:
+            status = find_torrent_status(t.get("info_hash", ""))
+            if status:
+                t["progress"] = status.get("progress", 0)
+                t["is_playable"] = status.get("is_playable", False)
+                t["dl_status"] = status.get("status", "")
         total_results = len(all_results)
         total_pages = max(1, (total_results + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE)
         start_idx = (page - 1) * MOVIES_PER_PAGE
