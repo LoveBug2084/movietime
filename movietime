@@ -2101,7 +2101,7 @@ def api_play():
         try:
             subtitle_files = find_subtitle_files(video_file)
 
-            mpv_args = ["mpv", "--fs", "--keep-open=yes", "--quiet", "--no-terminal",
+            mpv_args = ["mpv", "--fs", "--quiet", "--no-terminal",
                         "--hwdec=no", "--force-window=yes",
                         "--demuxer-readahead-secs=30", "--sid=no"]
 
@@ -2224,7 +2224,16 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MovieTime")
+        def crc8(path):
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+                return format(zlib.crc32(data), "08x")
+            except OSError:
+                return "????????"
+        crc_backend = crc8(os.path.join(SCRIPT_DIR, "movietime"))
+        crc_frontend = crc8(os.path.join(SCRIPT_DIR, "templates", "index.html"))
+        self.setWindowTitle(f"MovieTime {crc_backend}.{crc_frontend}")
         self.setGeometry(100, 100, 1200, 800)
         
         central_widget = QWidget()

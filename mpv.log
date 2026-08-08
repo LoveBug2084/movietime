@@ -1,6 +1,0 @@
-
-[2026-08-07 15:06:33] mpv --fs --keep-open=yes --quiet --no-terminal --hwdec=no --force-window=yes --demuxer-readahead-secs=30 --sid=no /home/bug/Projects/movietime/download/620/2C6FE968E9CB2FBDA9E40F252F3B7546529FDB3E/Ghostbusters 1984 (1080p x265 Joy).mkv
-libEGL warning: DRI2: failed to authenticate
-
-[2026-08-07 15:07:32] mpv --fs --keep-open=yes --quiet --no-terminal --hwdec=no --force-window=yes --demuxer-readahead-secs=30 --sid=no /home/bug/Projects/movietime/download/620/2C6FE968E9CB2FBDA9E40F252F3B7546529FDB3E/Ghostbusters 1984 (1080p x265 Joy).mkv
-libEGL warning: DRI2: failed to authenticate

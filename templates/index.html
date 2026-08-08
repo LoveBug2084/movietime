@@ -757,6 +757,7 @@
                         if (allOk && hashes.length > 0) {
                             libraryMovies = libraryMovies.filter(m => m.id !== movie.id);
                             displayMovies.forEach(m => { if (m.id === movie.id) delete m.resolutions; });
+                            delete torrentCache[getMovieUniqueKey(movie)];
                             card.remove();
                             cardMap.delete(movie.id);
                             const mcEl = document.getElementById('movie-count');
@@ -1518,13 +1519,14 @@
                         seeders.style.display = '';
                     }
 
+                    const isActiveDownload = downloadPollInterval && activeCard === card;
                     const progress = parseInt(torrent.progress || 0, 10);
                     const progressEl = existing.querySelector('.res-progress');
-                    if (progressEl) {
+                    if (progressEl && !isActiveDownload) {
                         progressEl.textContent = torrent.dl_status ? `${progress}%` : (progress > 0 ? `${progress}%` : '');
                     }
                     const progressFill = existing.querySelector('.res-progress-fill');
-                    if (progressFill) {
+                    if (progressFill && !isActiveDownload) {
                         progressFill.className = 'res-progress-fill' + (progress >= 100 ? ' completed' : '');
                         progressFill.style.width = progress + '%';
                     }

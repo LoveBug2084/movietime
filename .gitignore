@@ -1,5 +1,5 @@
-experiments/
 download/
 database/
 __pycache__/
+mpv.log
 .tmdb
