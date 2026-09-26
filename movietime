@@ -1049,38 +1049,46 @@ def download_torrent(magnet_link, info_hash, name, tmdb_id=None):
     threading.Thread(target=wait_for_metadata, daemon=True).start()
 
 def find_video_file(info_hash, tmdb_id=None):
-    """Find the first video file in download/<tmdb_id>/<info_hash>/"""
+    """Find the largest video file in download/<tmdb_id>/<info_hash>/"""
     if not info_hash:
         return None
 
-    video_exts = [".mp4", ".mkv", ".avi", ".webm", ".mov"]
+    video_exts = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
 
+    def scan_dir(hash_dir):
+        largest_file = None
+        largest_size = 0
+        for root, dirs, files in os.walk(hash_dir):
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in video_exts:
+                    full_path = os.path.join(root, f)
+                    try:
+                        size = os.path.getsize(full_path)
+                        if size > largest_size:
+                            largest_size = size
+                            largest_file = full_path
+                    except OSError:
+                        pass
+        return largest_file
+
+    # Try specific tmdb_id first
     if tmdb_id is not None:
         hash_dir = os.path.join(DOWNLOAD_DIR, str(tmdb_id), info_hash)
         if os.path.isdir(hash_dir):
-            for root, dirs, files in os.walk(hash_dir):
-                for f in files:
-                    ext = os.path.splitext(f)[1].lower()
-                    if ext in video_exts:
-                        full_path = os.path.join(root, f)
-                        if os.path.getsize(full_path) > 0:
-                            return full_path
-        return None
+            result = scan_dir(hash_dir)
+            if result:
+                return result
 
     # Fallback: scan all tmdb dirs
     if not os.path.isdir(DOWNLOAD_DIR):
         return None
     for tmdb_dir in os.listdir(DOWNLOAD_DIR):
         hash_dir = os.path.join(DOWNLOAD_DIR, tmdb_dir, info_hash)
-        if not os.path.isdir(hash_dir):
-            continue
-        for root, dirs, files in os.walk(hash_dir):
-            for f in files:
-                ext = os.path.splitext(f)[1].lower()
-                if ext in video_exts:
-                    full_path = os.path.join(root, f)
-                    if os.path.getsize(full_path) > 0:
-                        return full_path
+        if os.path.isdir(hash_dir):
+            result = scan_dir(hash_dir)
+            if result:
+                return result
     return None
 
 def find_subtitle_files(video_path):
