@@ -1274,7 +1274,7 @@ def apply_sequential_priority(handle):
     handle.file_priority(best_file, lt.download_priority_t.normal_priority)
 
     for i in range(num_pieces):
-        handle.piece_priority(i, 0)
+        handle.piece_priority(i, lt.download_priority_t.dont_download)
 
     for i in range(video_start_piece, video_end_piece):
         handle.piece_priority(i, 5)
@@ -1980,7 +1980,7 @@ HEADER_MIN_PERCENT = 0.04  # 4% of file size minimum
 
 @app.route("/api/download/playable")
 def api_download_playable():
-    """Check if download is ready to play: needs metadata + 4% of filesize"""
+    """Check if download is ready to play: needs metadata + header pieces + 4% of filesize"""
     with download_lock:
         handle = current_download.get("handle")
         if not handle or not handle.is_valid():
@@ -1989,9 +1989,29 @@ def api_download_playable():
         if not handle.has_metadata():
             return jsonify({"playable": False, "reason": "waiting_for_metadata"})
 
+        video_start_piece = current_download.get("video_start_piece", 0)
+        header_piece_count = current_download.get("header_piece_count", 0)
+
+        header_done = 0
+        if header_piece_count > 0:
+            status = handle.status()
+            pieces = status.pieces
+            for i in range(video_start_piece, video_start_piece + header_piece_count):
+                if i < len(pieces) and pieces[i]:
+                    header_done += 1
+                else:
+                    return jsonify({
+                        "playable": False,
+                        "reason": "header_incomplete",
+                        "piece": i,
+                        "needed_piece": video_start_piece + header_piece_count - 1,
+                        "header_done": header_done,
+                        "header_total": header_piece_count
+                    })
+
         status = handle.status()
         downloaded = status.total_wanted_done
-        file_size = status.total_wanted  # actual movie file size
+        file_size = status.total_wanted
         min_required = int(file_size * HEADER_MIN_PERCENT) if file_size > 0 else 0
 
         if downloaded < min_required:
@@ -1999,16 +2019,18 @@ def api_download_playable():
                 "playable": False,
                 "reason": "insufficient_data",
                 "downloaded": downloaded,
-                "needed": min_required
+                "needed": min_required,
+                "header_done": header_done,
+                "header_total": header_piece_count
             })
 
         info_hash = current_download.get("info_hash")
         tmdb_id = current_download.get("tmdb_id")
         video_file = find_video_file(info_hash, tmdb_id)
-        if not video_file or not is_valid_video_file(video_file):
-            return jsonify({"playable": False, "reason": "video_not_ready"})
+        if not video_file:
+            return jsonify({"playable": False, "reason": "video_not_found"})
 
-        return jsonify({"playable": True, "downloaded": downloaded, "file_size": file_size})
+        return jsonify({"playable": True, "downloaded": downloaded, "file_size": file_size, "header_done": header_done, "header_total": header_piece_count})
 
 @app.route("/api/download/delete/hash/<info_hash>", methods=["DELETE"])
 def api_download_delete_hash_only(info_hash):

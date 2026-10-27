@@ -1812,9 +1812,22 @@
                             const downloaded = data.downloaded_size || 0;
                             const fileSize = parseInt(data.total_size) || 0;
                             const headerMin = Math.floor(fileSize * HEADER_MIN_PERCENT);
+
+                            // Fetch header piece progress for accurate orange bar
+                            const playableResp = await fetch('/api/download/playable');
+                            const playableData = await playableResp.json();
+                            const headerDone = playableData.header_done || 0;
+                            const headerTotal = playableData.header_total || 0;
+                            const headerComplete = headerTotal > 0 && headerDone >= headerTotal;
+
                             let displayPercent;
-                            if (downloaded < headerMin) {
+                            let isPhase1 = false;
+                            if (!headerComplete && headerTotal > 0) {
+                                displayPercent = Math.min(100, Math.floor((headerDone / headerTotal) * 100));
+                                isPhase1 = true;
+                            } else if (downloaded < headerMin) {
                                 displayPercent = Math.min(100, Math.floor((downloaded / headerMin) * 100));
+                                isPhase1 = true;
                             } else {
                                 if (!fileSize) break;
                                 displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
@@ -1826,9 +1839,9 @@
                                 const text = item.querySelector('.res-progress');
                                 if (fill) {
                                     fill.style.width = displayPercent + '%';
-                                    fill.classList.toggle('phase1', downloaded < headerMin);
-                                    fill.classList.toggle('phase2', downloaded >= headerMin && displayPercent < 100);
-                                    fill.classList.toggle('completed', displayPercent >= 100);
+                                    fill.classList.toggle('phase1', isPhase1);
+                                    fill.classList.toggle('phase2', !isPhase1 && displayPercent < 100);
+                                    fill.classList.toggle('completed', displayPercent >= 100 && headerComplete);
                                 }
                                 if (text) text.textContent = displayPercent + '%';
                             }
@@ -2095,10 +2108,25 @@
                 const fileSize = parseInt(data.total_size) || 0;
                 const headerMin = Math.floor(fileSize * HEADER_MIN_PERCENT);
 
+                // Fetch header piece progress for accurate orange bar
+                const playableResp = await fetch('/api/download/playable');
+                const playableData = await playableResp.json();
+                const headerDone = playableData.header_done || 0;
+                const headerTotal = playableData.header_total || 0;
+                const headerComplete = headerTotal > 0 && headerDone >= headerTotal;
+
                 let displayPercent;
-                if (downloaded < headerMin) {
+                let isPhase1 = false;
+                if (!headerComplete && headerTotal > 0) {
+                    // Phase 1: show header piece completion (0-100% of header pieces)
+                    displayPercent = Math.min(100, Math.floor((headerDone / headerTotal) * 100));
+                    isPhase1 = true;
+                } else if (downloaded < headerMin) {
+                    // Fallback: byte-based until headerMin
                     displayPercent = Math.min(100, Math.floor((downloaded / headerMin) * 100));
+                    isPhase1 = true;
                 } else {
+                    // Phase 2: show true download progress
                     if (!fileSize) return;
                     displayPercent = Math.min(100, Math.floor((downloaded / fileSize) * 100));
                 }
@@ -2111,16 +2139,13 @@
                     const fill = item.querySelector('.res-progress-fill');
                     if (fill) {
                         fill.style.width = displayPercent + '%';
-                        fill.classList.toggle('phase1', downloaded < headerMin);
-                        fill.classList.toggle('completed', displayPercent >= 100);
+                        fill.classList.toggle('phase1', isPhase1);
+                        fill.classList.toggle('completed', displayPercent >= 100 && headerComplete);
                     }
                 });
 
-                // Check playable status via backend API (100MB + header ready)
                 if (!isStreaming) {
-                    const playableResp = await fetch('/api/download/playable');
-                    const playableData = await playableResp.json();
-                    if (playableData.playable && isValid) {
+                    if (playableData.playable) {
                         card.classList.remove('downloading');
                         card.classList.add('playable');
                         isStreaming = true;
